@@ -1,0 +1,14 @@
+# Root level ignores
+node_modules/
+.env
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

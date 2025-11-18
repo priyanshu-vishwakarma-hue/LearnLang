@@ -24,6 +24,8 @@ const Chat = () => {
   const [showSuggestionModal, setShowSuggestionModal] = useState(false);
   const [suggestions, setSuggestions] = useState([]);
   const [savedMessageMap, setSavedMessageMap] = useState({});
+  const [speechRate, setSpeechRate] = useState(0.9);
+  const [speechPitch, setSpeechPitch] = useState(1.0);
 
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -203,8 +205,9 @@ const Chat = () => {
       synthesisRef.current.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = language;
-      utterance.rate = 0.9;
-      utterance.pitch = 1;
+      utterance.rate = speechRate; // Use state value
+      utterance.pitch = speechPitch; // Use state value
+      utterance.volume = 1.0; // You can also make this adjustable
       
       utterance.onstart = () => {
         console.log('🔊 Speech started');
@@ -386,7 +389,7 @@ const Chat = () => {
       
     } catch (error) {
       console.error('❌ Error sending message:', error);
-      setMessages(prev => prev.filter(msg => msg.content !== textToSend));
+      setMessages(prev => prev.filter (msg => msg.content !== textToSend));
       
       const errorMsg = error.response?.data?.message || error.message || 'Network error';
       showToast(`Failed: ${errorMsg}`, 'error');
@@ -553,6 +556,18 @@ const Chat = () => {
     }
   };
 
+  const handleSpeechRateChange = (e) => {
+    const newRate = parseFloat(e.target.value);
+    console.log('🎚️ Changing speech rate to:', newRate);
+    setSpeechRate(newRate);
+  };
+
+  const handleSpeechPitchChange = (e) => {
+    const newPitch = parseFloat(e.target.value);
+    console.log('🎵 Changing speech pitch to:', newPitch);
+    setSpeechPitch(newPitch);
+  };
+
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-primary to-primary-dark">
       {/* Header */}
@@ -566,7 +581,7 @@ const Chat = () => {
             {autoMode ? (isPaused ? '⏸️ Paused' : '📞 Call Active') : 'Chat Mode'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* User Speaking Language */}
           <div className="flex flex-col">
             <label className="text-xs text-gray-500 mb-1">I speak:</label>
@@ -576,22 +591,59 @@ const Chat = () => {
               className="px-3 py-2 bg-blue-100 rounded-lg text-sm font-semibold"
               disabled={autoMode && !isPaused}
             >
-              <option value="en">🇬🇧 English</option>
-              <option value="hi">🇮🇳 Hindi</option>
+              <option value="en">🇬🇧 EN</option>
+              <option value="hi">🇮🇳 HI</option>
             </select>
           </div>
 
           {/* AI Response Language */}
           <div className="flex flex-col">
-            <label className="text-xs text-gray-500 mb-1">AI responds:</label>
+            <label className="text-xs text-gray-500 mb-1">AI:</label>
             <select 
               value={aiResponseLanguage}
               onChange={(e) => setAiResponseLanguage(e.target.value)}
               className="px-3 py-2 bg-green-100 rounded-lg text-sm font-semibold"
               disabled={autoMode && !isPaused}
             >
-              <option value="en">🇬🇧 English</option>
-              <option value="hi">🇮🇳 Hindi</option>
+              <option value="en">🇬🇧 EN</option>
+              <option value="hi">🇮🇳 HI</option>
+            </select>
+          </div>
+
+          {/* Speech Speed Control */}
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-500 mb-1">Speed: {speechRate}x</label>
+            <select 
+              value={speechRate}
+              onChange={handleSpeechRateChange}
+              className="px-3 py-2 bg-purple-100 rounded-lg text-sm font-semibold cursor-pointer"
+              disabled={isSpeaking}
+            >
+              <option value={0.5}>🐢 0.5x</option>
+              <option value={0.75}>🐌 0.75x</option>
+              <option value={0.9}>📢 0.9x</option>
+              <option value={1.0}>⚡ 1.0x</option>
+              <option value={1.25}>🚀 1.25x</option>
+              <option value={1.5}>💨 1.5x</option>
+              <option value={2.0}>⚡⚡ 2.0x</option>
+            </select>
+          </div>
+
+          {/* Speech Pitch Control */}
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-500 mb-1">Pitch: {speechPitch}</label>
+            <select 
+              value={speechPitch}
+              onChange={handleSpeechPitchChange}
+              className="px-3 py-2 bg-orange-100 rounded-lg text-sm font-semibold cursor-pointer"
+              disabled={isSpeaking}
+            >
+              <option value={0.5}>🔉 Low</option>
+              <option value={0.8}>🔊 Norm-</option>
+              <option value={1.0}>🔊 Norm</option>
+              <option value={1.2}>🔊 Norm+</option>
+              <option value={1.5}>🔊 High</option>
+              <option value={2.0}>🔊 V.High</option>
             </select>
           </div>
 
@@ -599,11 +651,11 @@ const Chat = () => {
             <Lightbulb size={20} />
           </button>
           
-          <button onClick={toggleAutoMode} className={`p-3 rounded-lg ${autoMode ? 'bg-green-500 text-white animate-pulse' : 'bg-gray-100'}`}>
+          <button onClick={toggleAutoMode} className={`p-3 rounded-lg ${autoMode ? 'bg-green-500 text-white animate-pulse' : 'bg-gray-100'}`} title="Toggle call mode">
             {autoMode ? <PhoneOff size={20} /> : <PhoneCall size={20} />}
           </button>
           
-          <button onClick={clearConversation} className="p-2 hover:bg-red-50 text-red-600 rounded-lg">
+          <button onClick={clearConversation} className="p-2 hover:bg-red-50 text-red-600 rounded-lg" title="Clear conversation">
             <Trash2 size={20} />
           </button>
         </div>

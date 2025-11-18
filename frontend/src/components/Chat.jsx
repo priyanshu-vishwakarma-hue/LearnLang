@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import { 
   Mic, MicOff, Send, Volume2, ArrowLeft, Trash2, PhoneCall, PhoneOff, 
-  Lightbulb, X, Pause, Play, Bookmark, BookmarkCheck
+  Lightbulb, X, Pause, Play, Bookmark, BookmarkCheck, Moon, Sun, Settings, Menu
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
@@ -26,6 +26,8 @@ const Chat = () => {
   const [savedMessageMap, setSavedMessageMap] = useState({});
   const [speechRate, setSpeechRate] = useState(0.9);
   const [speechPitch, setSpeechPitch] = useState(1.0);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
+  const [showSettings, setShowSettings] = useState(false);
 
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -33,49 +35,31 @@ const Chat = () => {
   const autoModeTimeoutRef = useRef(null);
   const autoModeRef = useRef(false);
   const isPausedRef = useRef(false);
-  
-  // NEW: Add refs for language settings to avoid closure issues
   const userSpeakLanguageRef = useRef('en');
   const aiResponseLanguageRef = useRef('en');
+
+  // Apply dark mode
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    localStorage.setItem('darkMode', darkMode);
+  }, [darkMode]);
 
   useEffect(() => {
     fetchConversation();
     initializeSpeechRecognition();
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
+      if (recognitionRef.current) recognitionRef.current.stop();
       synthesisRef.current.cancel();
-      if (autoModeTimeoutRef.current) {
-        clearTimeout(autoModeTimeoutRef.current);
-      }
+      if (autoModeTimeoutRef.current) clearTimeout(autoModeTimeoutRef.current);
     };
   }, []);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  useEffect(() => { scrollToBottom(); }, [messages]);
+  useEffect(() => { fetchSavedStatus(); }, []);
+  useEffect(() => { userSpeakLanguageRef.current = userSpeakLanguage; }, [userSpeakLanguage]);
+  useEffect(() => { aiResponseLanguageRef.current = aiResponseLanguage; }, [aiResponseLanguage]);
 
-  // NEW: Fetch saved messages to mark them in chat
-  useEffect(() => {
-    fetchSavedStatus();
-  }, []);
-
-  // Update language refs whenever state changes
-  useEffect(() => {
-    userSpeakLanguageRef.current = userSpeakLanguage;
-    console.log('📝 User speak language updated to:', userSpeakLanguage);
-  }, [userSpeakLanguage]);
-
-  useEffect(() => {
-    aiResponseLanguageRef.current = aiResponseLanguage;
-    console.log('📝 AI response language updated to:', aiResponseLanguage);
-  }, [aiResponseLanguage]);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
+  const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   const initializeSpeechRecognition = () => {
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -568,157 +552,266 @@ const Chat = () => {
     setSpeechPitch(newPitch);
   };
 
+  const toggleDarkMode = () => setDarkMode(!darkMode);
+
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-primary to-primary-dark">
-      {/* Header */}
-      <div className="bg-white shadow-lg px-4 md:px-6 py-4 flex items-center justify-between gap-4">
-        <button onClick={() => navigate('/dashboard')} className="p-2 hover:bg-gray-100 rounded-lg">
-          <ArrowLeft size={20} />
-        </button>
-        <div className="flex-1 text-center md:text-left">
-          <h2 className="text-xl font-bold text-gray-800">English Practice</h2>
-          <p className="text-sm text-gray-600">
-            {autoMode ? (isPaused ? '⏸️ Paused' : '📞 Call Active') : 'Chat Mode'}
-          </p>
+    <div className="flex flex-col h-screen" style={{ background: darkMode ? '#343541' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+      {/* Header - Responsive */}
+      <div className="sticky top-0 z-50 border-b px-3 sm:px-4 md:px-6 py-3 md:py-4" style={{
+        background: darkMode ? '#2c2d37' : '#ffffff',
+        borderColor: darkMode ? '#444654' : '#e5e7eb'
+      }}>
+        <div className="flex items-center justify-between gap-2">
+          {/* Left Section */}
+          <div className="flex items-center gap-2 md:gap-3">
+            <button 
+              onClick={() => navigate('/dashboard')} 
+              className="p-2 md:p-2.5 rounded-lg hover:opacity-80 transition-opacity"
+              style={{ color: darkMode ? '#ececf1' : '#1f2937' }}
+            >
+              <ArrowLeft size={20} className="md:w-6 md:h-6" />
+            </button>
+            <div className="hidden sm:block">
+              <h2 className="text-base md:text-xl font-semibold" style={{ color: darkMode ? '#ececf1' : '#1f2937' }}>
+                English Practice
+              </h2>
+              <p className="text-xs md:text-sm" style={{ color: darkMode ? '#c5c5d2' : '#6b7280' }}>
+                {autoMode ? (isPaused ? '⏸️ Paused' : '📞 Active') : 'Chat'}
+              </p>
+            </div>
+          </div>
+
+          {/* Right Section - Larger buttons on desktop */}
+          <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3">
+            <button 
+              onClick={toggleDarkMode}
+              className="p-2 md:p-2.5 rounded-lg transition-all"
+              style={{ 
+                background: darkMode ? '#fbbf24' : '#1f2937',
+                color: '#ffffff'
+              }}
+              title="Toggle Theme"
+            >
+              {darkMode ? <Sun size={16} className="md:w-5 md:h-5" /> : <Moon size={16} className="md:w-5 md:h-5" />}
+            </button>
+
+            <button 
+              onClick={() => setShowSettings(!showSettings)}
+              className="p-2 md:p-2.5 rounded-lg hover:opacity-80 transition-opacity"
+              style={{ color: darkMode ? '#ececf1' : '#1f2937' }}
+              title="Settings"
+            >
+              <Settings size={16} className="md:w-5 md:h-5" />
+            </button>
+
+            {/* Suggestions button - larger on desktop */}
+            <button 
+              onClick={getSuggestion}
+              className="p-2 md:p-2.5 rounded-lg hover:opacity-80 transition-all flex items-center gap-1.5"
+              style={{ 
+                background: darkMode ? '#fbbf24' : '#fbbf24',
+                color: '#1f2937'
+              }}
+              title="Get Suggestions"
+            >
+              <Lightbulb size={16} className="md:w-5 md:h-5" />
+              <span className="hidden lg:inline text-sm font-semibold">Suggestions</span>
+            </button>
+
+            <button 
+              onClick={toggleAutoMode}
+              className={`p-2 md:p-2.5 rounded-lg transition-all flex items-center gap-1.5 ${autoMode ? 'animate-pulse' : ''}`}
+              style={{ 
+                background: autoMode ? '#10b981' : (darkMode ? '#444654' : '#f3f4f6'),
+                color: autoMode ? '#ffffff' : (darkMode ? '#ececf1' : '#1f2937')
+              }}
+              title={autoMode ? 'End Call' : 'Start Call'}
+            >
+              {autoMode ? <PhoneOff size={16} className="md:w-5 md:h-5" /> : <PhoneCall size={16} className="md:w-5 md:h-5" />}
+              <span className="hidden lg:inline text-sm font-semibold">{autoMode ? 'End Call' : 'Call'}</span>
+            </button>
+
+            <button 
+              onClick={clearConversation}
+              className="hidden md:flex items-center gap-1.5 p-2 md:p-2.5 rounded-lg hover:opacity-80 transition-all"
+              style={{ 
+                background: '#ef4444',
+                color: '#ffffff'
+              }}
+              title="Clear Chat"
+            >
+              <Trash2 size={16} className="md:w-5 md:h-5" />
+              <span className="hidden lg:inline text-sm font-semibold">Clear</span>
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* User Speaking Language */}
-          <div className="flex flex-col">
-            <label className="text-xs text-gray-500 mb-1">I speak:</label>
-            <select 
-              value={userSpeakLanguage}
-              onChange={(e) => setUserSpeakLanguage(e.target.value)}
-              className="px-3 py-2 bg-blue-100 rounded-lg text-sm font-semibold"
-              disabled={autoMode && !isPaused}
-            >
-              <option value="en">🇬🇧 EN</option>
-              <option value="hi">🇮🇳 HI</option>
-            </select>
-          </div>
 
-          {/* AI Response Language */}
-          <div className="flex flex-col">
-            <label className="text-xs text-gray-500 mb-1">AI:</label>
-            <select 
-              value={aiResponseLanguage}
-              onChange={(e) => setAiResponseLanguage(e.target.value)}
-              className="px-3 py-2 bg-green-100 rounded-lg text-sm font-semibold"
-              disabled={autoMode && !isPaused}
-            >
-              <option value="en">🇬🇧 EN</option>
-              <option value="hi">🇮🇳 HI</option>
-            </select>
-          </div>
+        {/* Settings Panel - Collapsible */}
+        {showSettings && (
+          <div className="mt-3 p-3 md:p-4 rounded-lg" style={{ background: darkMode ? '#444654' : '#f9fafb' }}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3">
+              <div>
+                <label className="block text-xs md:text-sm mb-1 font-medium" style={{ color: darkMode ? '#c5c5d2' : '#6b7280' }}>I speak:</label>
+                <select 
+                  value={userSpeakLanguage}
+                  onChange={(e) => setUserSpeakLanguage(e.target.value)}
+                  className="w-full px-2 md:px-3 py-1.5 md:py-2 text-sm md:text-base rounded-lg border"
+                  style={{
+                    background: darkMode ? '#40414f' : '#ffffff',
+                    borderColor: darkMode ? '#565869' : '#d1d5db',
+                    color: darkMode ? '#ececf1' : '#1f2937'
+                  }}
+                  disabled={autoMode && !isPaused}
+                >
+                  <option value="en">🇬🇧 EN</option>
+                  <option value="hi">🇮🇳 HI</option>
+                </select>
+              </div>
 
-          {/* Speech Speed Control */}
-          <div className="flex flex-col">
-            <label className="text-xs text-gray-500 mb-1">Speed: {speechRate}x</label>
-            <select 
-              value={speechRate}
-              onChange={handleSpeechRateChange}
-              className="px-3 py-2 bg-purple-100 rounded-lg text-sm font-semibold cursor-pointer"
-              disabled={isSpeaking}
-            >
-              <option value={0.5}>🐢 0.5x</option>
-              <option value={0.75}>🐌 0.75x</option>
-              <option value={0.9}>📢 0.9x</option>
-              <option value={1.0}>⚡ 1.0x</option>
-              <option value={1.25}>🚀 1.25x</option>
-              <option value={1.5}>💨 1.5x</option>
-              <option value={2.0}>⚡⚡ 2.0x</option>
-            </select>
-          </div>
+              <div>
+                <label className="block text-xs md:text-sm mb-1 font-medium" style={{ color: darkMode ? '#c5c5d2' : '#6b7280' }}>AI:</label>
+                <select 
+                  value={aiResponseLanguage}
+                  onChange={(e) => setAiResponseLanguage(e.target.value)}
+                  className="w-full px-2 md:px-3 py-1.5 md:py-2 text-sm md:text-base rounded-lg border"
+                  style={{
+                    background: darkMode ? '#40414f' : '#ffffff',
+                    borderColor: darkMode ? '#565869' : '#d1d5db',
+                    color: darkMode ? '#ececf1' : '#1f2937'
+                  }}
+                  disabled={autoMode && !isPaused}
+                >
+                  <option value="en">🇬🇧 EN</option>
+                  <option value="hi">🇮🇳 HI</option>
+                </select>
+              </div>
 
-          {/* Speech Pitch Control */}
-          <div className="flex flex-col">
-            <label className="text-xs text-gray-500 mb-1">Pitch: {speechPitch}</label>
-            <select 
-              value={speechPitch}
-              onChange={handleSpeechPitchChange}
-              className="px-3 py-2 bg-orange-100 rounded-lg text-sm font-semibold cursor-pointer"
-              disabled={isSpeaking}
-            >
-              <option value={0.5}>🔉 Low</option>
-              <option value={0.8}>🔊 Norm-</option>
-              <option value={1.0}>🔊 Norm</option>
-              <option value={1.2}>🔊 Norm+</option>
-              <option value={1.5}>🔊 High</option>
-              <option value={2.0}>🔊 V.High</option>
-            </select>
-          </div>
+              <div>
+                <label className="block text-xs md:text-sm mb-1 font-medium" style={{ color: darkMode ? '#c5c5d2' : '#6b7280' }}>Speed: {speechRate}x</label>
+                <select 
+                  value={speechRate}
+                  onChange={handleSpeechRateChange}
+                  className="w-full px-2 md:px-3 py-1.5 md:py-2 text-sm md:text-base rounded-lg border"
+                  style={{
+                    background: darkMode ? '#40414f' : '#ffffff',
+                    borderColor: darkMode ? '#565869' : '#d1d5db',
+                    color: darkMode ? '#ececf1' : '#1f2937'
+                  }}
+                  disabled={isSpeaking}
+                >
+                  <option value={0.5}>0.5x</option>
+                  <option value={0.75}>0.75x</option>
+                  <option value={0.9}>0.9x</option>
+                  <option value={1.0}>1.0x</option>
+                  <option value={1.25}>1.25x</option>
+                  <option value={1.5}>1.5x</option>
+                </select>
+              </div>
 
-          <button onClick={getSuggestion} className="p-2 bg-yellow-100 hover:bg-yellow-200 rounded-lg" title="Get suggestions">
-            <Lightbulb size={20} />
-          </button>
-          
-          <button onClick={toggleAutoMode} className={`p-3 rounded-lg ${autoMode ? 'bg-green-500 text-white animate-pulse' : 'bg-gray-100'}`} title="Toggle call mode">
-            {autoMode ? <PhoneOff size={20} /> : <PhoneCall size={20} />}
-          </button>
-          
-          <button onClick={clearConversation} className="p-2 hover:bg-red-50 text-red-600 rounded-lg" title="Clear conversation">
-            <Trash2 size={20} />
-          </button>
-        </div>
+              <div>
+                <label className="block text-xs md:text-sm mb-1 font-medium" style={{ color: darkMode ? '#c5c5d2' : '#6b7280' }}>Pitch: {speechPitch}</label>
+                <select 
+                  value={speechPitch}
+                  onChange={handleSpeechPitchChange}
+                  className="w-full px-2 md:px-3 py-1.5 md:py-2 text-sm md:text-base rounded-lg border"
+                  style={{
+                    background: darkMode ? '#40414f' : '#ffffff',
+                    borderColor: darkMode ? '#565869' : '#d1d5db',
+                    color: darkMode ? '#ececf1' : '#1f2937'
+                  }}
+                  disabled={isSpeaking}
+                >
+                  <option value={0.5}>Low</option>
+                  <option value={0.8}>Norm-</option>
+                  <option value={1.0}>Norm</option>
+                  <option value={1.2}>Norm+</option>
+                  <option value={1.5}>High</option>
+                </select>
+              </div>
+
+              <button 
+                onClick={clearConversation}
+                className="md:hidden px-3 py-1.5 rounded-lg text-sm font-semibold"
+                style={{ background: '#ef4444', color: '#ffffff' }}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 scrollbar-thin">
+      {/* Messages - Responsive */}
+      <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-white">
-            <PhoneCall size={64} className="mb-4 opacity-50" />
-            <h3 className="text-2xl font-bold mb-2">Start Conversation</h3>
-            <p className="text-lg opacity-90">Click phone icon for auto mode!</p>
+          <div className="flex flex-col items-center justify-center h-full text-center px-4">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mb-4" style={{
+              background: darkMode ? '#444654' : 'rgba(255,255,255,0.2)',
+              color: darkMode ? '#10a37f' : '#ffffff'
+            }}>
+              <PhoneCall size={32} />
+            </div>
+            <h3 className="text-xl sm:text-2xl font-bold mb-2" style={{ color: darkMode ? '#ececf1' : '#ffffff' }}>
+              Start Conversation
+            </h3>
+            <p className="text-sm sm:text-base" style={{ color: darkMode ? '#c5c5d2' : 'rgba(255,255,255,0.9)' }}>
+              Click the phone icon to begin!
+            </p>
           </div>
         ) : (
-          <div className="max-w-4xl mx-auto space-y-4">
+          <div className="max-w-3xl mx-auto space-y-3 sm:space-y-4">
             {messages.map((msg, index) => {
               const prevMsg = index > 0 ? messages[index - 1] : null;
               const isSaved = !!savedMessageMap[msg.content];
               
               return (
-                <div 
-                  key={index} 
-                  className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
+                <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
                   <div 
-                    className={`max-w-[80%] md:max-w-[70%] rounded-2xl px-4 py-3 ${
+                    className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 shadow-lg ${
                       msg.role === 'user' 
-                        ? 'bg-white text-gray-800' 
+                        ? '' 
                         : msg.hasGrammarError
-                          ? 'bg-yellow-100 text-gray-800 border-2 border-yellow-400'
-                          : 'bg-white/90 text-gray-800'
+                          ? 'border-2 border-amber-500'
+                          : ''
                     }`}
+                    style={
+                      msg.role === 'user'
+                        ? { background: '#10b981', color: '#ffffff' }
+                        : msg.hasGrammarError
+                          ? { background: darkMode ? '#92400e' : '#fef3c7', color: darkMode ? '#ffffff' : '#92400e' }
+                          : { background: darkMode ? '#444654' : '#ffffff', color: darkMode ? '#ececf1' : '#1f2937' }
+                    }
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <p className="flex-1 whitespace-pre-wrap break-words">{msg.content}</p>
+                      <p className="flex-1 text-sm sm:text-base whitespace-pre-wrap break-words">{msg.content}</p>
                       
-                      {/* AI Response Actions */}
                       {msg.role === 'assistant' && (
                         <div className="flex items-center gap-1 flex-shrink-0">
                           <button 
                             onClick={() => speakText(msg.content, aiResponseLanguage === 'hi' ? 'hi-IN' : 'en-US')}
-                            className="p-1.5 hover:bg-gray-200 rounded-lg transition-all"
+                            className="p-1.5 rounded-lg hover:opacity-70 transition-opacity"
                             title="Listen"
                           >
-                            <Volume2 size={16} />
+                            <Volume2 size={14} />
                           </button>
                           
                           <button 
-                            onClick={() => isSaved ? unsaveMessage(msg.content) : saveMessage(prevMsg?.content || 'Question', msg.content)}
-                            className={`p-1.5 rounded-lg transition-all transform hover:scale-110 ${
-                              isSaved
-                                ? 'bg-blue-500 text-white'
-                                : 'hover:bg-blue-50 text-blue-500'
-                            }`}
+                            onClick={() => isSaved ? unsaveMessage(msg.content) : saveMessage(prevMsg?.content || 'Q', msg.content)}
+                            className={`p-1.5 rounded-lg transition-all ${isSaved ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`}
+                            style={isSaved ? { background: '#3b82f6', color: '#ffffff' } : {}}
                             title={isSaved ? 'Unsave' : 'Save'}
                           >
-                            {isSaved ? <BookmarkCheck size={16} /> : <Bookmark size={16} />}
+                            {isSaved ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}
                           </button>
                         </div>
                       )}
                     </div>
+                    
                     {msg.hasGrammarError && (
-                      <span className="inline-block mt-2 px-2 py-1 bg-yellow-200 text-yellow-800 text-xs rounded-full font-semibold">
+                      <span className="inline-block mt-2 px-2 py-1 rounded-full text-xs font-semibold" style={{
+                        background: darkMode ? '#fbbf24' : '#fef3c7',
+                        color: darkMode ? '#1f2937' : '#92400e'
+                      }}>
                         Grammar Tip
                       </span>
                     )}
@@ -731,28 +824,38 @@ const Chat = () => {
         )}
       </div>
 
-      {/* Suggestion Modal */}
+      {/* Suggestion Modal - Responsive */}
       {showSuggestionModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl animate-slide-up">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowSuggestionModal(false)}>
+          <div 
+            className="rounded-2xl p-4 sm:p-6 max-w-md w-full shadow-2xl animate-fade-in"
+            style={{ background: darkMode ? '#2c2d37' : '#ffffff' }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                <Lightbulb className="text-yellow-500" size={28} />
+              <h3 className="text-lg sm:text-xl font-bold flex items-center gap-2" style={{ color: darkMode ? '#ececf1' : '#1f2937' }}>
+                <Lightbulb className="text-amber-500" size={24} />
                 Suggestions
               </h3>
-              <button onClick={() => setShowSuggestionModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
-                <X size={24} />
+              <button onClick={() => setShowSuggestionModal(false)} className="p-2 rounded-lg hover:opacity-70" style={{ color: darkMode ? '#ececf1' : '#1f2937' }}>
+                <X size={20} />
               </button>
             </div>
-            <p className="text-gray-600 mb-4">Click any suggestion to use it:</p>
-            <div className="space-y-3">
+            <p className="text-sm mb-4" style={{ color: darkMode ? '#c5c5d2' : '#6b7280' }}>
+              Click any suggestion:
+            </p>
+            <div className="space-y-2">
               {suggestions.map((suggestion, index) => (
                 <button
                   key={index}
                   onClick={() => useSuggestion(suggestion)}
-                  className="w-full text-left p-4 bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 rounded-xl transition-all hover:scale-105 border-2 border-transparent hover:border-blue-300"
+                  className="w-full text-left p-3 rounded-lg transition-all hover:scale-102"
+                  style={{
+                    background: darkMode ? '#444654' : '#f3f4f6',
+                    color: darkMode ? '#ececf1' : '#1f2937'
+                  }}
                 >
-                  <p className="text-gray-800 font-medium">{suggestion}</p>
+                  <p className="text-sm">{suggestion}</p>
                 </button>
               ))}
             </div>
@@ -760,93 +863,106 @@ const Chat = () => {
         </div>
       )}
 
-      {/* Input Area (Hidden in Auto Mode) */}
+      {/* Input Area - Responsive */}
       {!autoMode && (
-        <div className="bg-white px-4 md:px-6 py-4 shadow-2xl">
-          <div className="max-w-4xl mx-auto flex items-end gap-2">
-            <div className="flex-1 flex items-center gap-2 bg-gray-100 rounded-2xl px-4 py-3">
+        <div className="border-t px-3 sm:px-4 md:px-6 py-3 sm:py-4" style={{ 
+          background: darkMode ? '#2c2d37' : '#ffffff',
+          borderColor: darkMode ? '#444654' : '#e5e7eb'
+        }}>
+          <div className="max-w-3xl mx-auto flex items-end gap-2">
+            <div className="flex-1 rounded-2xl border overflow-hidden" style={{
+              background: darkMode ? '#40414f' : '#f3f4f6',
+              borderColor: darkMode ? '#565869' : '#d1d5db'
+            }}>
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder={
-                  userSpeakLanguage === 'hi' ? 'हिंदी में टाइप करें...' : 'Type in English...'
-                }
+                placeholder={userSpeakLanguage === 'hi' ? 'हिंदी में टाइप करें...' : 'Type in English...'}
                 rows={1}
-                className="flex-1 bg-transparent resize-none outline-none text-gray-800"
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-transparent resize-none outline-none text-sm sm:text-base"
+                style={{ color: darkMode ? '#ececf1' : '#1f2937' }}
               />
             </div>
 
-            <button onClick={handleVoiceInput} className={`p-4 rounded-2xl ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-primary text-white'}`}>
-              {isListening ? <MicOff size={24} /> : <Mic size={24} />}
+            <button 
+              onClick={handleVoiceInput}
+              className={`p-2.5 sm:p-3 rounded-full transition-all ${isListening ? 'animate-pulse' : ''}`}
+              style={{ 
+                background: isListening ? '#ef4444' : '#10b981',
+                color: '#ffffff'
+              }}
+            >
+              {isListening ? <MicOff size={18} /> : <Mic size={18} />}
             </button>
 
-            <button onClick={() => sendMessage()} disabled={!inputText.trim() || loading} className="p-4 bg-gradient-to-r from-primary to-primary-dark text-white rounded-2xl disabled:opacity-50">
-              <Send size={24} />
+            <button 
+              onClick={() => sendMessage()} 
+              disabled={!inputText.trim() || loading}
+              className="p-2.5 sm:p-3 rounded-full transition-all disabled:opacity-50"
+              style={{ background: '#10b981', color: '#ffffff' }}
+            >
+              <Send size={18} />
             </button>
           </div>
         </div>
       )}
 
-      {/* Auto Mode Controls */}
+      {/* Auto Mode Controls - Responsive */}
       {autoMode && (
-        <div className="bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-6">
-          <div className="max-w-4xl mx-auto flex items-center justify-between flex-wrap gap-4">
-            <div className="flex-1 min-w-[200px]">
-              <p className="font-bold text-lg">
-                {isPaused ? '⏸️ Call Paused' : isListening ? '🎤 Listening...' : isSpeaking ? '🔊 AI Speaking...' : loading ? '⏳ Processing...' : '✅ Ready'}
-              </p>
-              <p className="text-sm opacity-90">
-                {isPaused ? 'Click Resume to continue' : 'Speak naturally or use mic button'}
-              </p>
-            </div>
-            
-            <div className="flex items-center gap-3">
-              {/* Manual Mic Button */}
-              {!isPaused && !loading && !isSpeaking && (
+        <div className="px-3 sm:px-4 md:px-6 py-4 sm:py-5" style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#ffffff' }}>
+          <div className="max-w-3xl mx-auto">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-center sm:text-left flex-1">
+                <p className="font-semibold text-base sm:text-lg">
+                  {isPaused ? '⏸️ Paused' : isListening ? '🎤 Listening...' : isSpeaking ? '🔊 Speaking...' : loading ? '⏳ Processing...' : '✅ Ready'}
+                </p>
+                <p className="text-xs sm:text-sm opacity-90 mt-0.5">
+                  {isPaused ? 'Resume to continue' : 'Speak naturally'}
+                </p>
+              </div>
+              
+              <div className="flex items-center gap-2 sm:gap-3">
+                {!isPaused && !loading && !isSpeaking && (
+                  <button 
+                    onClick={handleVoiceInput}
+                    className={`px-4 sm:px-6 py-2 sm:py-2.5 rounded-full font-semibold text-sm sm:text-base flex items-center gap-2 transition-all ${
+                      isListening ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-white text-emerald-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {isListening ? (
+                      <>
+                        <MicOff size={18} />
+                        <span className="hidden sm:inline">Stop</span>
+                      </>
+                    ) : (
+                      <>
+                        <Mic size={18} />
+                        <span className="hidden sm:inline">Speak</span>
+                      </>
+                    )}
+                  </button>
+                )}
+                
                 <button 
-                  onClick={handleVoiceInput}
-                  className={`px-6 py-3 rounded-xl font-bold text-lg flex items-center gap-2 transition-all ${
-                    isListening 
-                      ? 'bg-red-500 hover:bg-red-600 animate-pulse' 
-                      : 'bg-white text-green-600 hover:bg-gray-100'
+                  onClick={togglePause}
+                  className={`px-4 sm:px-8 py-2 sm:py-2.5 rounded-full font-semibold text-sm sm:text-base flex items-center gap-2 transition-all ${
+                    isPaused ? 'bg-blue-500 hover:bg-blue-600 animate-pulse' : 'bg-amber-500 hover:bg-amber-600'
                   }`}
                 >
-                  {isListening ? (
+                  {isPaused ? (
                     <>
-                      <MicOff size={24} />
-                      Stop
+                      <Play size={18} />
+                      <span className="hidden sm:inline">Resume</span>
                     </>
                   ) : (
                     <>
-                      <Mic size={24} />
-                      Speak
+                      <Pause size={18} />
+                      <span className="hidden sm:inline">Pause</span>
                     </>
                   )}
                 </button>
-              )}
-              
-              {/* Pause/Resume Button */}
-              <button 
-                onClick={togglePause}
-                className={`px-8 py-3 rounded-xl font-bold text-lg flex items-center gap-2 transition-all ${
-                  isPaused 
-                    ? 'bg-blue-500 hover:bg-blue-600 animate-pulse' 
-                    : 'bg-yellow-500 hover:bg-yellow-600'
-                }`}
-              >
-                {isPaused ? (
-                  <>
-                    <Play size={24} />
-                    Resume
-                  </>
-                ) : (
-                  <>
-                    <Pause size={24} />
-                    Pause
-                  </>
-                )}
-              </button>
+              </div>
             </div>
           </div>
         </div>

@@ -51,6 +51,7 @@ const Chat = () => {
   const hasProcessedRef = useRef(false); // NEW: Track if we've already processed
   const accumulatedTranscriptRef = useRef(''); // NEW: Accumulate across pauses
   const isUserStillSpeakingRef = useRef(false); // NEW: Track if user is building a sentence
+  const isRecognitionActiveRef = useRef(false); // NEW: Track recognition state
 
   // Apply dark mode
   useEffect(() => {
@@ -149,19 +150,19 @@ const Chat = () => {
     recognitionRef.current.onstart = () => {
       console.log('🎤 Started listening');
       setIsListening(true);
+      isRecognitionActiveRef.current = true;
       setPermissionError('');
       
-      // DON'T clear accumulated transcript if user is continuing
+      // ALWAYS clear on new start if not continuing
       if (!isUserStillSpeakingRef.current) {
         accumulatedTranscriptRef.current = '';
+        setLiveTranscript('');
         console.log('🆕 Starting fresh sentence');
       } else {
-        console.log('➕ Continuing existing sentence:', accumulatedTranscriptRef.current);
+        console.log('➕ Continuing:', accumulatedTranscriptRef.current);
+        setLiveTranscript(accumulatedTranscriptRef.current);
       }
       
-      setLiveTranscript(accumulatedTranscriptRef.current); // Show what we have so far
-      interimTranscriptRef.current = '';
-      finalTranscriptRef.current = '';
       isProcessingRef.current = false;
       hasProcessedRef.current = false;
     };
@@ -231,9 +232,7 @@ const Chat = () => {
           hasProcessedRef.current = true;
           isProcessingRef.current = true;
           lastProcessedTranscriptRef.current = fullSentence;
-          isUserStillSpeakingRef.current = false; // Reset for next sentence
-          
-          console.log('✅ SENDING COMPLETE SENTENCE:', fullSentence);
+          isUserStillSpeakingRef.current = false; // RESET
           
           recognitionRef.current?.stop();
           setIsListening(false);
@@ -241,7 +240,7 @@ const Chat = () => {
           if (autoModeRef.current && !isPausedRef.current) {
             setLiveTranscript('');
             const messageToSend = fullSentence;
-            accumulatedTranscriptRef.current = ''; // Clear after sending
+            accumulatedTranscriptRef.current = ''; // CLEAR IMMEDIATELY
             
             setTimeout(() => {
               sendMessageDirect(messageToSend);
@@ -249,7 +248,7 @@ const Chat = () => {
           } else {
             setInputText(fullSentence);
             setLiveTranscript('');
-            accumulatedTranscriptRef.current = ''; // Clear
+            accumulatedTranscriptRef.current = ''; // CLEAR
             isProcessingRef.current = false;
             hasProcessedRef.current = false;
           }
@@ -268,6 +267,7 @@ const Chat = () => {
       isProcessingRef.current = false;
       setIsListening(false);
       setLiveTranscript('');
+      isRecognitionActiveRef.current = false; // Mark as inactive
       
       // Mobile-specific error handling
       if (event.error === 'not-allowed' || event.error === 'permission-denied') {
@@ -308,19 +308,36 @@ const Chat = () => {
       }
       
       setIsListening(false);
+      isRecognitionActiveRef.current = false; // Mark as inactive
       
-      // If user is still building a sentence, restart listening
-      if (isUserStillSpeakingRef.current && !hasProcessedRef.current && autoModeRef.current && !isPausedRef.current && !loading) {
+      // FIXED: Only restart if NOT paused, NOT loading, and NOT already restarting
+      if (isUserStillSpeakingRef.current && 
+          !hasProcessedRef.current && 
+          autoModeRef.current && 
+          !isPausedRef.current && 
+          !loading &&
+          !isRecognitionActiveRef.current) { // Prevent double restart
         console.log('🔄 User paused - restarting to continue sentence...');
-        setTimeout(() => startListening(), 300); // Quick restart
-      } else if (!hasProcessedRef.current && autoModeRef.current && !isPausedRef.current && !loading) {
+        setTimeout(() => {
+          if (!isRecognitionActiveRef.current) { // Double-check before restart
+            startListening();
+          }
+        }, 300);
+      } else if (!hasProcessedRef.current && 
+                 autoModeRef.current && 
+                 !isPausedRef.current && 
+                 !loading &&
+                 !isRecognitionActiveRef.current) {
         console.log('🔄 No processing - normal restart...');
-        setTimeout(() => startListening(), 1000);
+        setTimeout(() => {
+          if (!isRecognitionActiveRef.current) { // Double-check before restart
+            startListening();
+          }
+        }, 1000);
       }
     };
 
-    console.log('✅ Speech recognition initialized (with sentence accumulation)');
-    setPermissionError('');
+    console.log('✅ Speech recognition initialized');
   };
 
   const fetchConversation = async () => {
@@ -359,8 +376,14 @@ const Chat = () => {
       return;
     }
 
-    if (isListening || isPaused || loading || isProcessingRef.current) {
-      console.log('⚠️ Cannot start - listening:', isListening, 'paused:', isPaused, 'loading:', loading, 'processing:', isProcessingRef.current);
+    // CRITICAL: Check if already active
+    if (isRecognitionActiveRef.current || isListening) {
+      console.log('⚠️ Recognition already active - skipping');
+      return;
+    }
+
+    if (isPaused || loading || isProcessingRef.current) {
+      console.log('⚠️ Cannot start - paused/loading/processing');
       return;
     }
 
@@ -415,19 +438,21 @@ const Chat = () => {
       }
       
       recognitionRef.current.start();
+      isRecognitionActiveRef.current = true; // Mark as active immediately
       
     } catch (error) {
       console.error('❌ Error starting recognition:', error);
+      isRecognitionActiveRef.current = false; // Reset on error
       
       if (error.name === 'InvalidStateError') {
-        console.log('⚠️ Recognition already started, stopping and restarting...');
+        console.log('⚠️ Recognition already started, forcing stop...');
         recognitionRef.current.stop();
+        isRecognitionActiveRef.current = false;
         setTimeout(() => startListening(), 500);
         return;
       }
       
       setPermissionError('Failed to start microphone: ' + error.message);
-      showToast('Failed to start microphone', 'error');
     }
   };
 
@@ -683,9 +708,8 @@ const Chat = () => {
   };
 
   const saveMessage = async (userMsg, aiMsg) => {
-    // Prevent saving duplicate AI messages
     if (lastSavedTranscriptRef.current === aiMsg) {
-      console.log('⏭️ Already saved this message - skipping');
+      console.log('⏭️ Already saved - skipping');
       showToast('Already saved!', 'info');
       return;
     }
@@ -701,7 +725,7 @@ const Chat = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      lastSavedTranscriptRef.current = aiMsg; // Mark as saved
+      lastSavedTranscriptRef.current = aiMsg;
       
       setSavedMessageMap(prev => ({
         ...prev,
@@ -1366,12 +1390,12 @@ const Chat = () => {
             bottom: 0,
             left: 0,
             right: 0,
-            zIndex: 200, // Higher z-index than messages
+            zIndex: 200,
             paddingLeft: '12px',
             paddingRight: '12px',
             paddingTop: '16px',
             paddingBottom: 'max(env(safe-area-inset-bottom, 16px), 16px)',
-            boxShadow: '0 -4px 15px rgba(0, 0, 0, 0.3)' // Stronger shadow
+            boxShadow: '0 -4px 15px rgba(0, 0, 0, 0.3)'
           }}
         >
           <div className="max-w-3xl mx-auto">

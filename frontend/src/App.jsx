@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard';
 import Chat from './components/Chat';
 import Profile from './components/Profile';
 import SavedMessages from './components/SavedMessages';
+import HowToUse from './components/HowToUse';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 const PrivateRoute = ({ children }) => {
@@ -52,6 +53,7 @@ function App() {
           <Route path="/chat" element={<PrivateRoute><Chat /></PrivateRoute>} />
           <Route path="/profile" element={<PrivateRoute><Profile /></PrivateRoute>} />
           <Route path="/saved" element={<PrivateRoute><SavedMessages /></PrivateRoute>} />
+          <Route path="/how-to-use" element={<PrivateRoute><HowToUse /></PrivateRoute>} />
           <Route path="/" element={<Navigate to="/dashboard" />} />
         </Routes>
       </AuthProvider>

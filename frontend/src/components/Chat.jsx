@@ -435,9 +435,9 @@ const Chat = () => {
       console.log('✅ Speech completed');
       setIsSpeaking(false);
       
-      // IMPORTANT: Wait a bit longer and check we're still in auto mode before restarting
+      // INCREASED DELAY: Wait 2 seconds before restarting (was 1 second)
       if (autoModeRef.current && !isPausedRef.current) {
-        console.log('🎤 Will restart listening in 1 second...');
+        console.log('🎤 Will restart listening in 2 seconds...');
         setTimeout(() => {
           if (autoModeRef.current && !isPausedRef.current) {
             console.log('✅ Conditions met - restarting listening now');
@@ -445,7 +445,7 @@ const Chat = () => {
           } else {
             console.log('❌ Conditions not met - autoMode:', autoModeRef.current, 'paused:', isPausedRef.current);
           }
-        }, 1000);
+        }, 2000); // INCREASED from 1000 to 2000ms
       }
       
     } catch (error) {
@@ -698,7 +698,26 @@ const Chat = () => {
     setSpeechPitch(newPitch);
   };
 
-  const toggleDarkMode = () => setDarkMode(!darkMode);
+  // Listen for dark mode changes from Navbar
+  useEffect(() => {
+    const handleDarkModeChange = (e) => {
+      setDarkMode(e.detail);
+    };
+    
+    window.addEventListener('darkModeChange', handleDarkModeChange);
+    return () => window.removeEventListener('darkModeChange', handleDarkModeChange);
+  }, []);
+
+  // Update when dark mode changes
+  const toggleDarkMode = () => {
+    const newMode = !darkMode;
+    setDarkMode(newMode);
+    localStorage.setItem('darkMode', newMode);
+    document.documentElement.setAttribute('data-theme', newMode ? 'dark' : 'light');
+    
+    // Notify other components
+    window.dispatchEvent(new CustomEvent('darkModeChange', { detail: newMode }));
+  };
 
   return (
     <div className="flex flex-col mobile-vh-100" style={{ 
@@ -708,10 +727,12 @@ const Chat = () => {
       overflow: 'hidden',
       position: 'relative'
     }}>
-      {/* Header - Responsive */}
+      {/* Header - FIXED STICKY */}
       <div className="sticky top-0 z-50 border-b px-3 sm:px-4 md:px-6 py-3 md:py-4" style={{
         background: darkMode ? '#2c2d37' : '#ffffff',
-        borderColor: darkMode ? '#444654' : '#e5e7eb'
+        borderColor: darkMode ? '#444654' : '#e5e7eb',
+        position: 'sticky',
+        top: 0
       }}>
         <div className="flex items-center justify-between gap-2">
           {/* Left Section */}
@@ -938,7 +959,7 @@ const Chat = () => {
         </div>
       )}
 
-      {/* Messages - Scrollable area with proper padding for fixed bottom */}
+      {/* Messages - Fixed padding to prevent overlap */}
       <div 
         className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6" 
         style={{ 
@@ -946,7 +967,7 @@ const Chat = () => {
           overflowY: 'auto',
           position: 'relative',
           minHeight: 0,
-          paddingBottom: '100px' // Extra space so messages don't hide behind input
+          paddingBottom: autoMode ? '140px' : '120px' // Increased padding for call controls
         }}
       >
         {messages.length === 0 ? (
@@ -1069,7 +1090,7 @@ const Chat = () => {
         </div>
       )}
 
-      {/* Input Area - ABSOLUTELY FIXED like WhatsApp */}
+      {/* Input Area - FIXED with proper z-index */}
       {!autoMode && (
         <div 
           className="sticky-bottom safe-bottom"
@@ -1080,7 +1101,7 @@ const Chat = () => {
             bottom: 0,
             left: 0,
             right: 0,
-            zIndex: 100,
+            zIndex: 200, // Higher z-index than messages
             paddingLeft: '12px',
             paddingRight: '12px',
             paddingTop: '12px',
@@ -1133,7 +1154,7 @@ const Chat = () => {
         </div>
       )}
 
-      {/* Auto Mode Controls - ABSOLUTELY FIXED like WhatsApp */}
+      {/* Auto Mode Controls - FIXED with higher z-index */}
       {autoMode && (
         <div 
           className="sticky-bottom safe-bottom"
@@ -1144,12 +1165,12 @@ const Chat = () => {
             bottom: 0,
             left: 0,
             right: 0,
-            zIndex: 100,
+            zIndex: 200, // Higher z-index than messages
             paddingLeft: '12px',
             paddingRight: '12px',
             paddingTop: '16px',
             paddingBottom: 'max(env(safe-area-inset-bottom, 16px), 16px)',
-            boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.2)'
+            boxShadow: '0 -4px 15px rgba(0, 0, 0, 0.3)' // Stronger shadow
           }}
         >
           <div className="max-w-3xl mx-auto">

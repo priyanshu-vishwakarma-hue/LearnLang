@@ -40,27 +40,30 @@
 }
 
 /* Prevent body scroll */
-html, body {
+html {
   margin: 0;
   padding: 0;
   width: 100%;
   height: 100%;
-  overflow: hidden;
-  position: fixed;
+  overflow-x: hidden; /* Prevent horizontal scroll only */
+  overflow-y: auto; /* Allow vertical scroll */
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh; /* Changed from height: 100% */
+  overflow-x: hidden;
+  overflow-y: auto; /* Allow vertical scroll */
+  position: relative; /* Changed from fixed */
 }
 
 #root {
   width: 100%;
-  height: 100%;
-  overflow: hidden;
+  min-height: 100vh; /* Changed from height: 100% */
+  overflow-x: hidden;
+  overflow-y: auto; /* Allow scroll */
 }
 
 /* Safe area for iOS notch/home indicator */
@@ -80,7 +83,7 @@ body {
   bottom: 0 !important;
   left: 0 !important;
   right: 0 !important;
-  z-index: 100 !important;
+  z-index: 200 !important; /* Higher than messages */
 }
 
 /* Custom scrollbar */
@@ -205,22 +208,36 @@ textarea {
     font-size: 16px !important;
   }
   
-  /* Prevent overscroll bounce */
-  body {
+  /* Prevent overscroll bounce on Chat page only */
+  .chat-page {
     overscroll-behavior: none;
-    -webkit-overflow-scrolling: touch;
   }
   
-  /* Extra iOS keyboard fix */
-  @supports (-webkit-touch-callout: none) {
-    .sticky-bottom {
-      position: -webkit-sticky !important;
-      position: sticky !important;
-    }
+  /* Allow scroll on other pages */
+  .scroll-page {
+    -webkit-overflow-scrolling: touch;
+    overflow-y: auto;
+  }
+  
+  /* Ensure call controls don't overlap messages */
+  .sticky-bottom {
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.3) !important;
+  }
+  
+  /* Add extra bottom padding on mobile */
+  .mobile-messages-padding {
+    padding-bottom: 160px !important;
   }
 }
 
 /* Smooth scrolling for iOS */
 * {
   -webkit-overflow-scrolling: touch;
+}
+
+/* Ensure all pages can scroll */
+.page-container {
+  min-height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
 }

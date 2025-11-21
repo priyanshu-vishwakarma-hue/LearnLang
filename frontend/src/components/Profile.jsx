@@ -1,190 +1,191 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
-import { ArrowLeft, Save, User, Globe, Target, Briefcase, Heart } from 'lucide-react';
+import { ArrowLeft, User, Mail, Trophy, Moon, Sun } from 'lucide-react';
+import Navbar from './Navbar';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const Profile = () => {
-  const { user, setUser } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [formData, setFormData] = useState({
-    name: user?.profile?.name || '',
-    nativeLanguage: user?.profile?.nativeLanguage || 'Hindi',
-    proficiencyLevel: user?.profile?.proficiencyLevel || 'beginner',
-    learningGoals: user?.profile?.learningGoals || '',
-    age: user?.profile?.age || '',
-    occupation: user?.profile?.occupation || '',
-    interests: user?.profile?.interests?.join(', ') || ''
-  });
+  const [name, setName] = useState('');
+  const [proficiencyLevel, setProficiencyLevel] = useState('beginner');
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
 
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+  // Listen for dark mode changes
+  useEffect(() => {
+    const handleDarkModeChange = (e) => {
+      setDarkMode(e.detail);
+    };
+    
+    window.addEventListener('darkModeChange', handleDarkModeChange);
+    return () => window.removeEventListener('darkModeChange', handleDarkModeChange);
+  }, []);
+
+  useEffect(() => {
+    if (user?.profile) {
+      setName(user.profile.name);
+      setProficiencyLevel(user.profile.proficiencyLevel);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+    localStorage.setItem('darkMode', darkMode);
+  }, [darkMode]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setMessage('');
 
     try {
       const token = localStorage.getItem('token');
-      const interestsArray = formData.interests.split(',').map(i => i.trim()).filter(i => i);
-      
-      const response = await axios.put(
+      await axios.put(
         `${API_URL}/user/profile`,
-        {
-          profile: {
-            ...formData,
-            interests: interestsArray,
-            age: formData.age ? parseInt(formData.age) : undefined
-          }
-        },
+        { name, proficiencyLevel },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      setUser({ ...user, profile: response.data.user });
-      setMessage('Profile updated successfully!');
-      setTimeout(() => navigate('/dashboard'), 2000);
+      
+      showToast('Profile updated successfully!', 'success');
+      window.location.reload();
     } catch (error) {
-      setMessage('Failed to update profile. Please try again.');
+      console.error('Error updating profile:', error);
+      showToast('Failed to update profile', 'error');
     } finally {
       setLoading(false);
     }
   };
 
+  const showToast = (message, type = 'success') => {
+    const toastDiv = document.createElement('div');
+    const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
+    toastDiv.className = `fixed top-20 right-4 ${bgColor} text-white px-6 py-3 rounded-xl shadow-2xl z-50`;
+    toastDiv.textContent = message;
+    document.body.appendChild(toastDiv);
+    setTimeout(() => toastDiv.remove(), 3000);
+  };
+
+  const toggleDarkMode = () => setDarkMode(!darkMode);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary to-primary-dark p-5">
-      <div className="max-w-2xl mx-auto">
-        <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-10">
-          <div className="flex items-center gap-4 mb-8">
-            <button 
-              onClick={() => navigate('/dashboard')} 
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeft size={24} />
-            </button>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800">Edit Profile</h1>
-              <p className="text-gray-600 text-sm">Update your personal information</p>
+    <div className="min-h-screen" style={{ background: darkMode ? '#343541' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+      <Navbar />
+      
+      {/* Content with top padding */}
+      <div className="pt-14 sm:pt-16 md:pt-18">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+          <div className="rounded-2xl p-6 sm:p-8 shadow-xl border-2" style={{
+            background: darkMode ? '#444654' : '#ffffff',
+            borderColor: darkMode ? '#565869' : '#e5e7eb'
+          }}>
+            {/* User Info */}
+            <div className="flex items-center gap-4 mb-8 pb-6 border-b" style={{
+              borderColor: darkMode ? '#565869' : '#e5e7eb'
+            }}>
+              <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+              }}>
+                <User className="text-white" size={32} />
+              </div>
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold" style={{ color: darkMode ? '#ececf1' : '#1f2937' }}>
+                  {user?.profile?.name}
+                </h2>
+                <p className="text-sm flex items-center gap-2" style={{ color: darkMode ? '#9ca3af' : '#6b7280' }}>
+                  <Mail size={14} />
+                  {user?.email}
+                </p>
+              </div>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium mb-2" style={{ color: darkMode ? '#c5c5d2' : '#374151' }}>
+                  Name
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg border-2 outline-none transition-all"
+                  style={{
+                    background: darkMode ? '#40414f' : '#f9fafb',
+                    borderColor: darkMode ? '#565869' : '#d1d5db',
+                    color: darkMode ? '#ececf1' : '#1f2937'
+                  }}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2" style={{ color: darkMode ? '#c5c5d2' : '#374151' }}>
+                  Proficiency Level
+                </label>
+                <select
+                  value={proficiencyLevel}
+                  onChange={(e) => setProficiencyLevel(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg border-2 outline-none transition-all"
+                  style={{
+                    background: darkMode ? '#40414f' : '#f9fafb',
+                    borderColor: darkMode ? '#565869' : '#d1d5db',
+                    color: darkMode ? '#ececf1' : '#1f2937'
+                  }}
+                >
+                  <option value="beginner">Beginner</option>
+                  <option value="intermediate">Intermediate</option>
+                  <option value="advanced">Advanced</option>
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 px-4 rounded-lg font-semibold transition-all disabled:opacity-50"
+                style={{
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  color: '#ffffff'
+                }}
+              >
+                {loading ? 'Updating...' : 'Update Profile'}
+              </button>
+            </form>
+
+            {/* Stats */}
+            <div className="mt-8 pt-6 border-t" style={{
+              borderColor: darkMode ? '#565869' : '#e5e7eb'
+            }}>
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2" style={{ color: darkMode ? '#ececf1' : '#1f2937' }}>
+                <Trophy size={20} style={{ color: '#fbbf24' }} />
+                Your Stats
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 rounded-lg" style={{
+                  background: darkMode ? '#565869' : '#f3f4f6'
+                }}>
+                  <p className="text-2xl font-bold" style={{ color: darkMode ? '#ececf1' : '#1f2937' }}>
+                    {user?.statistics?.totalMessages || 0}
+                  </p>
+                  <p className="text-sm" style={{ color: darkMode ? '#9ca3af' : '#6b7280' }}>
+                    Total Messages
+                  </p>
+                </div>
+                <div className="p-4 rounded-lg" style={{
+                  background: darkMode ? '#565869' : '#f3f4f6'
+                }}>
+                  <p className="text-2xl font-bold" style={{ color: darkMode ? '#ececf1' : '#1f2937' }}>
+                    {user?.statistics?.grammarCorrections || 0}
+                  </p>
+                  <p className="text-sm" style={{ color: darkMode ? '#9ca3af' : '#6b7280' }}>
+                    Grammar Tips
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
-
-          {message && (
-            <div className={`mb-6 p-4 rounded-lg text-center ${
-              message.includes('success') ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'
-            }`}>
-              {message}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border-2 border-transparent focus-within:border-primary transition-colors">
-              <User size={20} className="text-gray-400" />
-              <input
-                type="text"
-                name="name"
-                placeholder="Full Name"
-                value={formData.name}
-                onChange={handleChange}
-                required
-                className="flex-1 bg-transparent outline-none text-gray-800"
-              />
-            </div>
-
-            <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border-2 border-transparent focus-within:border-primary transition-colors">
-              <Globe size={20} className="text-gray-400" />
-              <select 
-                name="nativeLanguage" 
-                value={formData.nativeLanguage} 
-                onChange={handleChange}
-                className="flex-1 bg-transparent outline-none text-gray-800"
-              >
-                <option value="Hindi">Hindi</option>
-                <option value="English">English</option>
-                <option value="Spanish">Spanish</option>
-                <option value="French">French</option>
-                <option value="German">German</option>
-                <option value="Chinese">Chinese</option>
-              </select>
-            </div>
-
-            <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border-2 border-transparent focus-within:border-primary transition-colors">
-              <Target size={20} className="text-gray-400" />
-              <select 
-                name="proficiencyLevel" 
-                value={formData.proficiencyLevel} 
-                onChange={handleChange}
-                className="flex-1 bg-transparent outline-none text-gray-800"
-              >
-                <option value="beginner">Beginner</option>
-                <option value="intermediate">Intermediate</option>
-                <option value="advanced">Advanced</option>
-              </select>
-            </div>
-
-            <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border-2 border-transparent focus-within:border-primary transition-colors">
-              <User size={20} className="text-gray-400" />
-              <input
-                type="number"
-                name="age"
-                placeholder="Age (optional)"
-                value={formData.age}
-                onChange={handleChange}
-                min="1"
-                max="120"
-                className="flex-1 bg-transparent outline-none text-gray-800"
-              />
-            </div>
-
-            <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border-2 border-transparent focus-within:border-primary transition-colors">
-              <Briefcase size={20} className="text-gray-400" />
-              <input
-                type="text"
-                name="occupation"
-                placeholder="Occupation (optional)"
-                value={formData.occupation}
-                onChange={handleChange}
-                className="flex-1 bg-transparent outline-none text-gray-800"
-              />
-            </div>
-
-            <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-xl border-2 border-transparent focus-within:border-primary transition-colors">
-              <Heart size={20} className="text-gray-400 mt-1" />
-              <input
-                type="text"
-                name="interests"
-                placeholder="Interests (comma-separated, e.g., reading, music, travel)"
-                value={formData.interests}
-                onChange={handleChange}
-                className="flex-1 bg-transparent outline-none text-gray-800"
-              />
-            </div>
-
-            <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-xl border-2 border-transparent focus-within:border-primary transition-colors">
-              <Target size={20} className="text-gray-400 mt-1" />
-              <textarea
-                name="learningGoals"
-                placeholder="Your learning goals (optional)"
-                value={formData.learningGoals}
-                onChange={handleChange}
-                rows={4}
-                className="flex-1 bg-transparent outline-none text-gray-800 resize-none"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-gradient-to-r from-primary to-primary-dark text-white py-4 rounded-xl text-lg font-semibold flex items-center justify-center gap-2 hover:-translate-y-0.5 hover:shadow-lg transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Save size={20} />
-              {loading ? 'Saving...' : 'Save Profile'}
-            </button>
-          </form>
         </div>
       </div>
     </div>

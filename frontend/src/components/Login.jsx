@@ -29,9 +29,7 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{
-      background: darkMode ? '#343541' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-    }}>
+    <div className="page-container scroll-page min-h-screen flex items-center justify-center px-4 py-8" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
       <div className="w-full max-w-md">
         <div className="rounded-3xl shadow-2xl p-8 sm:p-10" style={{
           background: darkMode ? '#2c2d37' : '#ffffff'

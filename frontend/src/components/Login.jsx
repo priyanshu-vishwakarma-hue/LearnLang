@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Mail, Lock, LogIn } from 'lucide-react';
+import { LogIn, Mail, Lock, Eye, EyeOff } from 'lucide-react';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [darkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -27,58 +29,131 @@ const Login = () => {
   };
 
   return (
-    <div className="flex justify-center items-center min-h-screen p-5">
-      <div className="bg-white rounded-3xl shadow-2xl p-10 w-full max-w-md animate-slide-up">
-        <div className="text-center mb-8">
-          <LogIn className="text-primary mx-auto mb-4" size={48} />
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Welcome Back!</h1>
-          <p className="text-gray-600 text-sm">Login to continue your English learning journey</p>
-        </div>
+    <div className="min-h-screen flex items-center justify-center p-4" style={{
+      background: darkMode ? '#343541' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+    }}>
+      <div className="w-full max-w-md">
+        <div className="rounded-3xl shadow-2xl p-8 sm:p-10" style={{
+          background: darkMode ? '#2c2d37' : '#ffffff'
+        }}>
+          {/* Icon */}
+          <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+            }}>
+              <LogIn size={32} className="text-white" />
+            </div>
+          </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+          {/* Title */}
+          <h2 className="text-2xl sm:text-3xl font-bold text-center mb-2" style={{
+            color: darkMode ? '#ececf1' : '#1f2937'
+          }}>
+            Welcome Back!
+          </h2>
+          <p className="text-center mb-8 text-sm sm:text-base" style={{
+            color: darkMode ? '#c5c5d2' : '#6b7280'
+          }}>
+            Login to continue your English learning journey
+          </p>
+
+          {/* Error Message */}
           {error && (
-            <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center">
-              {error}
+            <div className="mb-6 p-4 bg-red-100 border-l-4 border-red-500 rounded-lg">
+              <p className="text-red-700 text-sm">{error}</p>
             </div>
           )}
 
-          <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border-2 border-transparent focus-within:border-primary focus-within:bg-white transition-all">
-            <Mail size={20} className="text-gray-400" />
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="flex-1 bg-transparent text-gray-800 text-base border-none"
-            />
-          </div>
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Email Input */}
+            <div>
+              <label className="block text-sm font-semibold mb-2" style={{
+                color: darkMode ? '#ececf1' : '#374151'
+              }}>
+                Email Address
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Mail size={20} style={{ color: darkMode ? '#9ca3af' : '#6b7280' }} />
+                </div>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full pl-12 pr-4 py-3 sm:py-3.5 rounded-xl border-2 text-base sm:text-lg font-medium transition-all focus:outline-none focus:ring-4"
+                  style={{
+                    background: darkMode ? '#40414f' : '#f9fafb',
+                    borderColor: darkMode ? '#565869' : '#e5e7eb',
+                    color: darkMode ? '#ececf1' : '#1f2937'
+                  }}
+                  placeholder="your@email.com"
+                  required
+                />
+              </div>
+            </div>
 
-          <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border-2 border-transparent focus-within:border-primary focus-within:bg-white transition-all">
-            <Lock size={20} className="text-gray-400" />
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="flex-1 bg-transparent text-gray-800 text-base border-none"
-            />
-          </div>
+            {/* Password Input */}
+            <div>
+              <label className="block text-sm font-semibold mb-2" style={{
+                color: darkMode ? '#ececf1' : '#374151'
+              }}>
+                Password
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <Lock size={20} style={{ color: darkMode ? '#9ca3af' : '#6b7280' }} />
+                </div>
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-12 pr-12 py-3 sm:py-3.5 rounded-xl border-2 text-base sm:text-lg font-medium transition-all focus:outline-none focus:ring-4"
+                  style={{
+                    background: darkMode ? '#40414f' : '#f9fafb',
+                    borderColor: darkMode ? '#565869' : '#e5e7eb',
+                    color: darkMode ? '#ececf1' : '#1f2937'
+                  }}
+                  placeholder="••••••••"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-4 flex items-center"
+                >
+                  {showPassword ? (
+                    <EyeOff size={20} style={{ color: darkMode ? '#9ca3af' : '#6b7280' }} />
+                  ) : (
+                    <Eye size={20} style={{ color: darkMode ? '#9ca3af' : '#6b7280' }} />
+                  )}
+                </button>
+              </div>
+            </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-gradient-to-r from-primary to-primary-dark text-white py-4 rounded-xl text-base font-semibold transition-all hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Logging in...' : 'Login'}
-          </button>
-        </form>
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3.5 sm:py-4 rounded-xl text-white text-base sm:text-lg font-bold transition-all hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+              }}
+            >
+              {loading ? 'Logging in...' : 'Login'}
+            </button>
+          </form>
 
-        <div className="mt-5 text-center text-gray-600 text-sm">
-          <p>
+          {/* Sign Up Link */}
+          <p className="mt-6 text-center text-sm sm:text-base" style={{
+            color: darkMode ? '#c5c5d2' : '#6b7280'
+          }}>
             Don't have an account?{' '}
-            <Link to="/signup" className="text-primary font-semibold hover:underline">
+            <Link 
+              to="/signup" 
+              className="font-bold hover:underline"
+              style={{ color: '#667eea' }}
+            >
               Sign up
             </Link>
           </p>

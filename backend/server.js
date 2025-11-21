@@ -24,8 +24,20 @@ if (!process.env.GROQ_API_KEY) {
 }
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+}));
 app.use(express.json());
+
+// Security headers for microphone access
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'microphone=*');
+  res.setHeader('Feature-Policy', 'microphone *');
+  next();
+});
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI)
@@ -38,12 +50,19 @@ app.use('/api/conversation', conversationRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/saved', savedRoutes);
 
-// Health Check
+// Health Check with HTTPS info
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'LangLearn API is running with Groq' });
+  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  res.json({ 
+    status: 'ok', 
+    message: 'LangLearn API is running with Groq',
+    https: isSecure ? 'Yes ✓' : 'No - Microphone may not work on mobile',
+    protocol: req.protocol
+  });
 });
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT} with Groq AI`);
+  console.log(`📱 For mobile: Use HTTPS for microphone access`);
 });

@@ -28,6 +28,7 @@ const Chat = () => {
   const [speechPitch, setSpeechPitch] = useState(1.0);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
   const [showSettings, setShowSettings] = useState(false);
+  const [permissionError, setPermissionError] = useState('');
 
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -61,6 +62,18 @@ const Chat = () => {
 
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   const initializeSpeechRecognition = () => {
+    // Check if running on HTTPS or localhost
+    const isSecure = window.location.protocol === 'https:' || 
+                     window.location.hostname === 'localhost' || 
+                     window.location.hostname === '127.0.0.1';
+    
+    if (!isSecure) {
+      setPermissionError('❌ Microphone requires HTTPS. Please use HTTPS URL.');
+      console.error('Not HTTPS - mic blocked');
+      showToast('Microphone requires HTTPS connection', 'error');
+      return;
+    }
+
     if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       recognitionRef.current = new SpeechRecognition();
@@ -131,7 +144,9 @@ const Chat = () => {
         setIsListening(false);
       };
     } else {
+      setPermissionError('❌ Speech recognition not supported in this browser');
       console.error('❌ Speech recognition not supported in this browser');
+      showToast('Speech recognition not supported', 'error');
     }
   };
 
@@ -165,12 +180,32 @@ const Chat = () => {
     }
   };
 
-  const startListening = () => {
+  const startListening = async () => {
     if (recognitionRef.current && !isListening && !isPaused && !loading) {
-      // Use REF for current language
-      recognitionRef.current.lang = userSpeakLanguageRef.current === 'hi' ? 'hi-IN' : 'en-US';
-      console.log('🎤 Starting recognition with language:', recognitionRef.current.lang);
-      recognitionRef.current.start();
+      try {
+        // Request microphone permission explicitly on mobile
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          try {
+            await navigator.mediaDevices.getUserMedia({ audio: true });
+            console.log('✅ Microphone permission granted');
+            setPermissionError('');
+          } catch (permError) {
+            console.error('❌ Microphone permission denied:', permError);
+            setPermissionError('🎤 Microphone access denied. Please allow in browser settings.');
+            showToast('Please allow microphone access', 'error');
+            return;
+          }
+        }
+
+        // Use REF for current language
+        recognitionRef.current.lang = userSpeakLanguageRef.current === 'hi' ? 'hi-IN' : 'en-US';
+        console.log('🎤 Starting recognition with language:', recognitionRef.current.lang);
+        recognitionRef.current.start();
+      } catch (error) {
+        console.error('❌ Error starting recognition:', error);
+        setPermissionError('Failed to start microphone');
+        showToast('Failed to start microphone', 'error');
+      }
     } else {
       console.log('⚠️ Cannot start listening - listening:', isListening, 'paused:', isPaused, 'loading:', loading);
     }
@@ -964,6 +999,29 @@ const Chat = () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Permission Error Banner */}
+      {permissionError && (
+        <div className="px-3 sm:px-4 md:px-6 py-3" style={{ 
+          background: darkMode ? '#7f1d1d' : '#fee2e2',
+          borderBottom: '2px solid #dc2626'
+        }}>
+          <div className="max-w-3xl mx-auto">
+            <p className="text-sm sm:text-base font-semibold text-center" style={{
+              color: darkMode ? '#fecaca' : '#991b1b'
+            }}>
+              {permissionError}
+            </p>
+            {window.location.protocol !== 'https:' && (
+              <p className="text-xs sm:text-sm text-center mt-1" style={{
+                color: darkMode ? '#fca5a5' : '#b91c1c'
+              }}>
+                📱 On mobile: Use <strong>https://</strong> URL instead of http://
+              </p>
+            )}
           </div>
         </div>
       )}

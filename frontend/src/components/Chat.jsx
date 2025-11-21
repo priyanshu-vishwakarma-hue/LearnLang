@@ -29,6 +29,8 @@ const Chat = () => {
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
   const [showSettings, setShowSettings] = useState(false);
   const [permissionError, setPermissionError] = useState('');
+  const [isMobile, setIsMobile] = useState(false);
+  const [browserInfo, setBrowserInfo] = useState('');
 
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -60,6 +62,45 @@ const Chat = () => {
   useEffect(() => { userSpeakLanguageRef.current = userSpeakLanguage; }, [userSpeakLanguage]);
   useEffect(() => { aiResponseLanguageRef.current = aiResponseLanguage; }, [aiResponseLanguage]);
 
+  // Detect mobile and browser
+  useEffect(() => {
+    const mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    setIsMobile(mobile);
+    
+    const isChrome = /Chrome/.test(navigator.userAgent);
+    const isSafari = /Safari/.test(navigator.userAgent) && !isChrome;
+    const isFirefox = /Firefox/.test(navigator.userAgent);
+    
+    setBrowserInfo(
+      isChrome ? 'Chrome' :
+      isSafari ? 'Safari' :
+      isFirefox ? 'Firefox' : 'Unknown'
+    );
+    
+    console.log('📱 Device Info:', {
+      isMobile: mobile,
+      browser: browserInfo,
+      userAgent: navigator.userAgent
+    });
+  }, []);
+
+  // Mobile viewport height fix
+  useEffect(() => {
+    const setVH = () => {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+    
+    setVH();
+    window.addEventListener('resize', setVH);
+    window.addEventListener('orientationchange', setVH);
+    
+    return () => {
+      window.removeEventListener('resize', setVH);
+      window.removeEventListener('orientationchange', setVH);
+    };
+  }, []);
+
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   const initializeSpeechRecognition = () => {
     // Check if running on HTTPS or localhost
@@ -74,80 +115,115 @@ const Chat = () => {
       return;
     }
 
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
+    // Check for speech recognition support
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      const errorMsg = isMobile 
+        ? '❌ Speech recognition not supported on this mobile browser. Please use Chrome on Android or Safari on iOS.'
+        : '❌ Speech recognition not supported in this browser. Please use Chrome, Edge, or Safari.';
+      
+      setPermissionError(errorMsg);
+      console.error('❌ Speech recognition not available');
+      showToast(errorMsg, 'error');
+      return;
+    }
+
+    recognitionRef.current = new SpeechRecognition();
+    
+    // Mobile-specific settings
+    if (isMobile) {
+      console.log('📱 Configuring for mobile...');
+      recognitionRef.current.continuous = false; // Better for mobile
+      recognitionRef.current.interimResults = false; // More reliable on mobile
+    } else {
       recognitionRef.current.continuous = false;
       recognitionRef.current.interimResults = false;
-      recognitionRef.current.maxAlternatives = 1;
-      
-      recognitionRef.current.onstart = () => {
-        console.log('🎤 Started listening');
-        setIsListening(true);
-      };
-      
-      recognitionRef.current.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        const confidence = event.results[0][0].confidence;
-        
-        console.log('📝 Got transcript:', transcript);
-        console.log('Confidence:', confidence);
-        console.log('Auto mode (ref):', autoModeRef.current, 'Is paused (ref):', isPausedRef.current);
-        
-        // Check if transcript is meaningful (not just noise/silence)
-        if (!transcript || transcript.trim().length < 2) {
-          console.log('⚠️ Empty or too short transcript, restarting listening...');
-          setIsListening(false);
-          // Restart listening in auto mode
-          if (autoModeRef.current && !isPausedRef.current) {
-            setTimeout(() => startListening(), 500);
-          }
-          return;
-        }
-        
-        // Use REF instead of state for immediate access
-        if (autoModeRef.current && !isPausedRef.current && transcript.trim()) {
-          console.log('✅ Auto-mode ACTIVE: Calling sendMessageDirect...');
-          setIsListening(false);
-          setTimeout(() => {
-            sendMessageDirect(transcript);
-          }, 200);
-        } else {
-          console.log('ℹ️ Normal mode: Updating inputText');
-          setInputText(transcript);
-          setIsListening(false);
-        }
-      };
-      
-      recognitionRef.current.onerror = (event) => {
-        console.error('❌ Speech error:', event.error);
-        setIsListening(false);
-        
-        // If it's "no-speech" error in auto mode, just restart
-        if (event.error === 'no-speech' && autoModeRef.current && !isPausedRef.current) {
-          console.log('🔄 No speech detected, restarting...');
-          setTimeout(() => startListening(), 1000);
-          return;
-        }
-        
-        // If error in auto mode, try restarting
-        if (autoModeRef.current && !isPausedRef.current && event.error !== 'aborted') {
-          setTimeout(() => {
-            console.log('🔄 Restarting after error...');
-            startListening();
-          }, 2000);
-        }
-      };
-      
-      recognitionRef.current.onend = () => {
-        console.log('🛑 Recognition ended');
-        setIsListening(false);
-      };
-    } else {
-      setPermissionError('❌ Speech recognition not supported in this browser');
-      console.error('❌ Speech recognition not supported in this browser');
-      showToast('Speech recognition not supported', 'error');
     }
+    
+    recognitionRef.current.maxAlternatives = 1;
+    
+    recognitionRef.current.onstart = () => {
+      console.log('🎤 Started listening');
+      setIsListening(true);
+      setPermissionError(''); // Clear any errors
+    };
+    
+    recognitionRef.current.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+      const confidence = event.results[0][0].confidence;
+      
+      console.log('📝 Got transcript:', transcript);
+      console.log('Confidence:', confidence);
+      console.log('Auto mode (ref):', autoModeRef.current, 'Is paused (ref):', isPausedRef.current);
+      
+      // Check if transcript is meaningful (not just noise/silence)
+      if (!transcript || transcript.trim().length < 2) {
+        console.log('⚠️ Empty or too short transcript, restarting listening...');
+        setIsListening(false);
+        // Restart listening in auto mode
+        if (autoModeRef.current && !isPausedRef.current) {
+          setTimeout(() => startListening(), 500);
+        }
+        return;
+      }
+      
+      // Use REF instead of state for immediate access
+      if (autoModeRef.current && !isPausedRef.current && transcript.trim()) {
+        console.log('✅ Auto-mode ACTIVE: Calling sendMessageDirect...');
+        setIsListening(false);
+        setTimeout(() => {
+          sendMessageDirect(transcript);
+        }, 200);
+      } else {
+        console.log('ℹ️ Normal mode: Updating inputText');
+        setInputText(transcript);
+        setIsListening(false);
+      }
+    };
+    
+    recognitionRef.current.onerror = (event) => {
+      console.error('❌ Speech error:', event.error);
+      setIsListening(false);
+      
+      // Mobile-specific error handling
+      if (event.error === 'not-allowed' || event.error === 'permission-denied') {
+        setPermissionError('🎤 Microphone permission denied. Please enable in browser settings.');
+        showToast('Please allow microphone in browser settings', 'error');
+        return;
+      }
+      
+      if (event.error === 'no-speech') {
+        console.log('⚠️ No speech detected');
+        if (autoModeRef.current && !isPausedRef.current) {
+          console.log('🔄 No speech detected, restarting...');
+          setTimeout(() => startListening(), 1500);
+        }
+        return;
+      }
+      
+      if (event.error === 'network') {
+        setPermissionError('❌ Network error. Check your internet connection.');
+        showToast('Network error - check internet', 'error');
+        return;
+      }
+      
+      // If error in auto mode, try restarting
+      if (autoModeRef.current && !isPausedRef.current && event.error !== 'aborted') {
+        setTimeout(() => {
+          console.log('🔄 Restarting after error...');
+          startListening();
+        }, 2000);
+      }
+    };
+    
+    recognitionRef.current.onend = () => {
+      console.log('🛑 Recognition ended');
+      setIsListening(false);
+    };
+
+    console.log('✅ Speech recognition initialized');
+    setPermissionError('');
   };
 
   const fetchConversation = async () => {
@@ -181,33 +257,68 @@ const Chat = () => {
   };
 
   const startListening = async () => {
-    if (recognitionRef.current && !isListening && !isPaused && !loading) {
-      try {
-        // Request microphone permission explicitly on mobile
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          try {
-            await navigator.mediaDevices.getUserMedia({ audio: true });
-            console.log('✅ Microphone permission granted');
-            setPermissionError('');
-          } catch (permError) {
-            console.error('❌ Microphone permission denied:', permError);
-            setPermissionError('🎤 Microphone access denied. Please allow in browser settings.');
-            showToast('Please allow microphone access', 'error');
-            return;
-          }
-        }
+    if (!recognitionRef.current) {
+      console.error('❌ Speech recognition not initialized');
+      setPermissionError('Speech recognition not available. Please refresh the page.');
+      return;
+    }
 
-        // Use REF for current language
-        recognitionRef.current.lang = userSpeakLanguageRef.current === 'hi' ? 'hi-IN' : 'en-US';
-        console.log('🎤 Starting recognition with language:', recognitionRef.current.lang);
-        recognitionRef.current.start();
-      } catch (error) {
-        console.error('❌ Error starting recognition:', error);
-        setPermissionError('Failed to start microphone');
-        showToast('Failed to start microphone', 'error');
-      }
-    } else {
+    if (isListening || isPaused || loading) {
       console.log('⚠️ Cannot start listening - listening:', isListening, 'paused:', isPaused, 'loading:', loading);
+      return;
+    }
+
+    try {
+      // Request microphone permission explicitly
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        console.log('🎤 Requesting microphone permission...');
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }
+          });
+          console.log('✅ Microphone permission granted');
+          
+          // Stop the test stream
+          stream.getTracks().forEach(track => track.stop());
+          
+          setPermissionError('');
+        } catch (permError) {
+          console.error('❌ Microphone permission denied:', permError);
+          
+          if (permError.name === 'NotAllowedError' || permError.name === 'PermissionDeniedError') {
+            setPermissionError('🎤 Microphone access denied. Please:\n1. Click the 🔒 lock icon in address bar\n2. Allow Microphone permission\n3. Reload the page');
+          } else {
+            setPermissionError('🎤 Cannot access microphone: ' + permError.message);
+          }
+          
+          showToast('Please allow microphone access', 'error');
+          return;
+        }
+      }
+
+      // Set language
+      recognitionRef.current.lang = userSpeakLanguageRef.current === 'hi' ? 'hi-IN' : 'en-US';
+      console.log('🎤 Starting recognition with language:', recognitionRef.current.lang);
+      
+      // Start recognition
+      recognitionRef.current.start();
+      
+    } catch (error) {
+      console.error('❌ Error starting recognition:', error);
+      
+      if (error.name === 'InvalidStateError') {
+        console.log('⚠️ Recognition already started, stopping and restarting...');
+        recognitionRef.current.stop();
+        setTimeout(() => startListening(), 500);
+        return;
+      }
+      
+      setPermissionError('Failed to start microphone: ' + error.message);
+      showToast('Failed to start microphone', 'error');
     }
   };
 
@@ -590,7 +701,13 @@ const Chat = () => {
   const toggleDarkMode = () => setDarkMode(!darkMode);
 
   return (
-    <div className="flex flex-col h-screen" style={{ background: darkMode ? '#343541' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+    <div className="flex flex-col mobile-vh-100" style={{ 
+      background: darkMode ? '#343541' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      height: '100vh',
+      height: 'calc(var(--vh, 1vh) * 100)',
+      overflow: 'hidden',
+      position: 'relative'
+    }}>
       {/* Header - Responsive */}
       <div className="sticky top-0 z-50 border-b px-3 sm:px-4 md:px-6 py-3 md:py-4" style={{
         background: darkMode ? '#2c2d37' : '#ffffff',
@@ -776,8 +893,62 @@ const Chat = () => {
         )}
       </div>
 
-      {/* Messages - Responsive */}
-      <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
+      {/* Permission Error Banner - Enhanced with line breaks */}
+      {permissionError && (
+        <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4" style={{ 
+          background: darkMode ? '#7f1d1d' : '#fee2e2',
+          borderBottom: '2px solid #dc2626',
+          position: 'relative',
+          zIndex: 50
+        }}>
+          <div className="max-w-3xl mx-auto">
+            <p className="text-xs sm:text-sm md:text-base font-semibold text-center mb-2 whitespace-pre-line" style={{
+              color: darkMode ? '#fecaca' : '#991b1b'
+            }}>
+              {permissionError}
+            </p>
+            
+            {/* Mobile-specific instructions */}
+            {isMobile && (
+              <div className="text-xs sm:text-sm space-y-1" style={{
+                color: darkMode ? '#fca5a5' : '#b91c1c'
+              }}>
+                <p className="font-semibold">📱 Mobile Setup:</p>
+                {browserInfo === 'Chrome' && (
+                  <>
+                    <p>• Tap 🔒 in address bar</p>
+                    <p>• Tap "Permissions"</p>
+                    <p>• Enable "Microphone"</p>
+                    <p>• Reload page</p>
+                  </>
+                )}
+                {browserInfo === 'Safari' && (
+                  <>
+                    <p>• Go to iPhone Settings → Safari → {window.location.hostname}</p>
+                    <p>• Enable "Microphone"</p>
+                    <p>• Reload page</p>
+                  </>
+                )}
+                {window.location.protocol !== 'https:' && (
+                  <p className="mt-2 font-bold">⚠️ Must use HTTPS URL!</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Messages - Scrollable area with proper padding for fixed bottom */}
+      <div 
+        className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6" 
+        style={{ 
+          WebkitOverflowScrolling: 'touch',
+          overflowY: 'auto',
+          position: 'relative',
+          minHeight: 0,
+          paddingBottom: '100px' // Extra space so messages don't hide behind input
+        }}
+      >
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mb-4" style={{
@@ -898,12 +1069,27 @@ const Chat = () => {
         </div>
       )}
 
-      {/* Input Area - Responsive */}
+      {/* Input Area - ABSOLUTELY FIXED like WhatsApp */}
       {!autoMode && (
-        <div className="border-t px-3 sm:px-4 md:px-6 py-3 sm:py-4" style={{ 
-          background: darkMode ? '#2c2d37' : '#ffffff',
-          borderColor: darkMode ? '#444654' : '#e5e7eb'
-        }}>
+        <div 
+          className="sticky-bottom safe-bottom"
+          style={{ 
+            background: darkMode ? '#2c2d37' : '#ffffff',
+            borderTop: `1px solid ${darkMode ? '#444654' : '#e5e7eb'}`,
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 100,
+            paddingLeft: '12px',
+            paddingRight: '12px',
+            paddingTop: '12px',
+            paddingBottom: 'max(env(safe-area-inset-bottom, 12px), 12px)',
+            boxShadow: darkMode 
+              ? '0 -2px 10px rgba(0, 0, 0, 0.3)'
+              : '0 -2px 10px rgba(0, 0, 0, 0.1)'
+          }}
+        >
           <div className="max-w-3xl mx-auto flex items-end gap-2">
             <div className="flex-1 rounded-2xl border overflow-hidden" style={{
               background: darkMode ? '#40414f' : '#f3f4f6',
@@ -916,13 +1102,17 @@ const Chat = () => {
                 placeholder={userSpeakLanguage === 'hi' ? 'हिंदी में टाइप करें...' : 'Type in English...'}
                 rows={1}
                 className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-transparent resize-none outline-none text-sm sm:text-base"
-                style={{ color: darkMode ? '#ececf1' : '#1f2937' }}
+                style={{ 
+                  color: darkMode ? '#ececf1' : '#1f2937',
+                  maxHeight: '100px',
+                  fontSize: '16px'
+                }}
               />
             </div>
 
             <button 
               onClick={handleVoiceInput}
-              className={`p-2.5 sm:p-3 rounded-full transition-all ${isListening ? 'animate-pulse' : ''}`}
+              className={`p-2.5 sm:p-3 rounded-full transition-all flex-shrink-0 ${isListening ? 'animate-pulse' : ''}`}
               style={{ 
                 background: isListening ? '#ef4444' : '#10b981',
                 color: '#ffffff'
@@ -934,7 +1124,7 @@ const Chat = () => {
             <button 
               onClick={() => sendMessage()} 
               disabled={!inputText.trim() || loading}
-              className="p-2.5 sm:p-3 rounded-full transition-all disabled:opacity-50"
+              className="p-2.5 sm:p-3 rounded-full transition-all disabled:opacity-50 flex-shrink-0"
               style={{ background: '#10b981', color: '#ffffff' }}
             >
               <Send size={18} />
@@ -943,9 +1133,25 @@ const Chat = () => {
         </div>
       )}
 
-      {/* Auto Mode Controls - Responsive */}
+      {/* Auto Mode Controls - ABSOLUTELY FIXED like WhatsApp */}
       {autoMode && (
-        <div className="px-3 sm:px-4 md:px-6 py-4 sm:py-5" style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#ffffff' }}>
+        <div 
+          className="sticky-bottom safe-bottom"
+          style={{ 
+            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
+            color: '#ffffff',
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 100,
+            paddingLeft: '12px',
+            paddingRight: '12px',
+            paddingTop: '16px',
+            paddingBottom: 'max(env(safe-area-inset-bottom, 16px), 16px)',
+            boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.2)'
+          }}
+        >
           <div className="max-w-3xl mx-auto">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="text-center sm:text-left flex-1">
@@ -999,29 +1205,6 @@ const Chat = () => {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Permission Error Banner */}
-      {permissionError && (
-        <div className="px-3 sm:px-4 md:px-6 py-3" style={{ 
-          background: darkMode ? '#7f1d1d' : '#fee2e2',
-          borderBottom: '2px solid #dc2626'
-        }}>
-          <div className="max-w-3xl mx-auto">
-            <p className="text-sm sm:text-base font-semibold text-center" style={{
-              color: darkMode ? '#fecaca' : '#991b1b'
-            }}>
-              {permissionError}
-            </p>
-            {window.location.protocol !== 'https:' && (
-              <p className="text-xs sm:text-sm text-center mt-1" style={{
-                color: darkMode ? '#fca5a5' : '#b91c1c'
-              }}>
-                📱 On mobile: Use <strong>https://</strong> URL instead of http://
-              </p>
-            )}
           </div>
         </div>
       )}

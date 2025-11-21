@@ -34,29 +34,63 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (email, password) => {
+  const signup = async (name, email, password, proficiencyLevel) => {
     try {
-      console.log('Attempting login to:', `${API_URL}/auth/login`);
-      const response = await axios.post(`${API_URL}/auth/login`, { email, password });
-      localStorage.setItem('token', response.data.token);
-      setUser(response.data.user);
-      return response.data;
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      console.log('Attempting signup to:', `${API_URL}/auth/signup`);
+      
+      const response = await axios.post(`${API_URL}/auth/signup`, {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+        proficiencyLevel
+      });
+
+      const { token, user } = response.data;
+      localStorage.setItem('token', token);
+      setUser(user);
+      console.log('✅ Signup successful');
     } catch (error) {
-      console.error('Login error:', error.response?.data || error.message);
-      throw error;
+      console.error('Signup error:', error.response?.data || error);
+      
+      // Better error handling
+      if (error.response?.data?.errors) {
+        const errorMessages = error.response.data.errors.map(err => err.message).join(', ');
+        throw new Error(errorMessages);
+      } else if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      } else {
+        throw new Error('Signup failed. Please try again.');
+      }
     }
   };
 
-  const signup = async (userData) => {
+  const login = async (email, password) => {
     try {
-      console.log('Attempting signup to:', `${API_URL}/auth/signup`);
-      const response = await axios.post(`${API_URL}/auth/signup`, userData);
-      localStorage.setItem('token', response.data.token);
-      setUser(response.data.user);
-      return response.data;
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      console.log('Attempting login to:', `${API_URL}/auth/login`);
+      
+      const response = await axios.post(`${API_URL}/auth/login`, {
+        email: email.trim().toLowerCase(),
+        password
+      });
+
+      const { token, user } = response.data;
+      localStorage.setItem('token', token);
+      setUser(user);
+      console.log('✅ Login successful');
     } catch (error) {
-      console.error('Signup error:', error.response?.data || error.message);
-      throw error;
+      console.error('Login error:', error.response?.data || error);
+      
+      // Better error handling
+      if (error.response?.data?.errors) {
+        const errorMessages = error.response.data.errors.map(err => err.message).join(', ');
+        throw new Error(errorMessages);
+      } else if (error.response?.data?.message) {
+        throw new Error(error.response.data.message);
+      } else {
+        throw new Error('Login failed. Please try again.');
+      }
     }
   };
 

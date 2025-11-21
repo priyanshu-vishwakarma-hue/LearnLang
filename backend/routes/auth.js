@@ -1,122 +1,169 @@
 import express from 'express';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.js';
-import { authenticate } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// Signup
-router.post('/signup', [
-  body('email').isEmail().withMessage('Invalid email'),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-  body('name').notEmpty().withMessage('Name is required')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+// SIGNUP
+router.post(
+  '/signup',
+  [
+    body('name')
+      .trim()
+      .notEmpty().withMessage('Name is required')
+      .isLength({ min: 2 }).withMessage('Name must be at least 2 characters'),
+    body('email')
+      .trim()
+      .isEmail().withMessage('Please enter a valid email')
+      .normalizeEmail(),
+    body('password')
+      .isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+    body('proficiencyLevel')
+      .isIn(['beginner', 'intermediate', 'advanced'])
+      .withMessage('Invalid proficiency level')
+  ],
+  async (req, res) => {
+    try {
+      console.log('📝 Signup request received:', {
+        name: req.body.name,
+        email: req.body.email,
+        proficiencyLevel: req.body.proficiencyLevel
+      });
 
-    const { email, password, name, nativeLanguage, proficiencyLevel } = req.body;
-
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
-
-    const user = new User({
-      email,
-      password,
-      profile: {
-        name,
-        nativeLanguage: nativeLanguage || 'Hindi',
-        proficiencyLevel: proficiencyLevel || 'beginner'
+      // Check validation errors
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        console.log('❌ Validation errors:', errors.array());
+        return res.status(400).json({ 
+          message: 'Validation failed',
+          errors: errors.array().map(err => ({
+            field: err.path,
+            message: err.msg
+          }))
+        });
       }
-    });
 
-    await user.save();
+      const { name, email, password, proficiencyLevel } = req.body;
 
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
-
-    res.status(201).json({
-      message: 'User created successfully',
-      token,
-      user: {
-        id: user._id,
-        email: user.email,
-        profile: user.profile
+      // Check if user already exists
+      const existingUser = await User.findOne({ email: email.toLowerCase() });
+      if (existingUser) {
+        console.log('❌ User already exists:', email);
+        return res.status(400).json({ 
+          message: 'User with this email already exists' 
+        });
       }
-    });
-  } catch (error) {
-    console.error('Signup error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      // Create new user
+      const user = new User({
+        email: email.toLowerCase(),
+        password: hashedPassword,
+        profile: {
+          name: name.trim(),
+          proficiencyLevel: proficiencyLevel || 'beginner'
+        }
+      });
+
+      await user.save();
+      console.log('✅ User created successfully:', user.email);
+
+      // Generate token
+      const token = jwt.sign(
+        { userId: user._id },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      res.status(201).json({
+        message: 'User created successfully',
+        token,
+        user: {
+          id: user._id,
+          email: user.email,
+          profile: user.profile
+        }
+      });
+    } catch (error) {
+      console.error('❌ Signup error:', error);
+      res.status(500).json({ 
+        message: 'Server error during signup',
+        error: error.message 
+      });
+    }
   }
-});
+);
 
-// Login
-router.post('/login', [
-  body('email').isEmail().withMessage('Invalid email'),
-  body('password').exists().withMessage('Password is required')
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+// LOGIN
+router.post(
+  '/login',
+  [
+    body('email').trim().isEmail().withMessage('Please enter a valid email').normalizeEmail(),
+    body('password').notEmpty().withMessage('Password is required')
+  ],
+  async (req, res) => {
+    try {
+      console.log('🔐 Login request received:', req.body.email);
 
-    const { email, password } = req.body;
-
-    console.log('Login attempt for:', email);
-
-    const user = await User.findOne({ email });
-    if (!user) {
-      console.log('User not found:', email);
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      console.log('Password mismatch for:', email);
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    // Update last active
-    user.statistics.lastActive = new Date();
-    await user.save();
-
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
-
-    console.log('Login successful for:', email);
-
-    res.json({
-      message: 'Login successful',
-      token,
-      user: {
-        id: user._id,
-        email: user.email,
-        profile: user.profile,
-        statistics: user.statistics
+      // Check validation errors
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        console.log('❌ Validation errors:', errors.array());
+        return res.status(400).json({ 
+          message: 'Validation failed',
+          errors: errors.array().map(err => ({
+            field: err.path,
+            message: err.msg
+          }))
+        });
       }
-    });
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
 
-// Verify token (for persistent login)
-router.get('/verify', authenticate, async (req, res) => {
-  try {
-    const user = await User.findById(req.userId).select('-password');
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      const { email, password } = req.body;
+
+      // Find user
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user) {
+        console.log('❌ User not found:', email);
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+
+      // Check password
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
+        console.log('❌ Invalid password for:', email);
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+
+      // Generate token
+      const token = jwt.sign(
+        { userId: user._id },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      console.log('✅ Login successful:', user.email);
+
+      res.json({
+        message: 'Login successful',
+        token,
+        user: {
+          id: user._id,
+          email: user.email,
+          profile: user.profile
+        }
+      });
+    } catch (error) {
+      console.error('❌ Login error:', error);
+      res.status(500).json({ 
+        message: 'Server error during login',
+        error: error.message 
+      });
     }
-    res.json({ user });
-  } catch (error) {
-    console.error('Verify token error:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
   }
-});
+);
 
 export default router;

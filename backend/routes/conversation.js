@@ -50,6 +50,7 @@ router.post("/message", authenticate, async (req, res) => {
   try {
     console.log('📥 ===== NEW MESSAGE REQUEST =====');
     console.log('📦 Request body:', JSON.stringify(req.body, null, 2));
+    console.log('🔑 User ID from token:', req.userId);
     
     const { message, userSpeakLanguage = 'en', aiResponseLanguage = 'en' } = req.body;
     
@@ -57,13 +58,23 @@ router.post("/message", authenticate, async (req, res) => {
     console.log('🗣️ User speaks:', userSpeakLanguage);
     console.log('🤖 AI should respond in:', aiResponseLanguage);
 
+    // FIXED: Properly fetch user with error handling
     const user = await User.findById(req.userId);
+    
+    if (!user) {
+      console.error('❌ User not found with ID:', req.userId);
+      return res.status(404).json({ message: 'User not found. Please log in again.' });
+    }
+    
+    console.log('✅ User found:', user.email);
+    
     let conversation = await Conversation.findOne({
       userId: req.userId,
       sessionActive: true,
     });
 
     if (!conversation) {
+      console.log('📝 Creating new conversation...');
       conversation = new Conversation({ userId: req.userId, messages: [] });
     }
 
@@ -77,46 +88,62 @@ router.post("/message", authenticate, async (req, res) => {
 
     // STRONG identity and language enforcement
     const systemMessage = aiResponseLanguage === 'hi'
-  ? `तुम ${user.profile.name} की English practice कराने वाली advanced AI assistant हो। तुम्हारा व्यवहार एक highly-skilled English teacher + technology expert जैसा होना चाहिए।
+  ? `तुम ${user.profile.name} की English speaking practice कराने वाली friendly AI teacher हो।
 
 पहचान:
 - नाम: "English Practice Assistant"
 - निर्माता: Priyanshu Vishwakarma
 - मालिक: Priyanshu Vishwakarma
-- कार्य: English सिखाना, technology समझाना, और concepts clear कराना।
 
-Communication Rules:
-- Default भाषा: हिंदी (लेकिन English सीखते समय English examples दे सकती हो)
-- Reply हमेशा 1–2 sentences में दो — छोटे, clear और simple।
-- Code कभी मत दो, जब तक user स्पष्ट रूप से ना मांगे।
-- अगर user कहे "explain", "tell in detail", "full explanation" — तब 5+ lines दे सकती हो।
-- English grammar, vocabulary, sentence formation और technology दोनों में expert की तरह जवाब दो।
+Speaking Practice Rules (बहुत ज़रूरी):
+1. Natural conversation में reply करो - कभी asterisks (*), italics, या formatting मत use करो
+2. Simple, spoken English में बोलो - जैसे friends बात करते हैं
+3. 1-2 छोटे sentences में reply दो - directly और clearly
+4. Grammar mistakes को politely correct करो बिना asteris्क के
+5. Encourage करो natural speaking style के लिए
+6. Roleplay और dialogue scenarios दे सकती हो
+
+Example Good Replies:
+❌ BAD: "Oh, that's *wonderful*! You're doing **great**!"
+✅ GOOD: "Oh that's wonderful! You're doing great!"
+
+❌ BAD: "*nervously* I think we should practice more..."
+✅ GOOD: "I think we should practice more. Are you ready?"
 
 Identity Answers:
-"तुम्हारा नाम क्या है" → "मैं English practice करने वाली AI assistant हूँ, जिसे Priyanshu Vishwakarma ने बनाया है।"
-"तुम्हें किसने बनाया" → "मुझे Priyanshu Vishwakarma ने बनाया है।"
-"तुम्हारा owner कौन है" → "Priyanshu Vishwakarma मेरे creator और owner हैं।"`
+"तुम्हारा नाम क्या है" → "मैं English speaking practice assistant हूँ। Priyanshu Vishwakarma ने मुझे बनाया है। आज किस topic पर बात करेंगे?"
+"किसने बनाया" → "Priyanshu Vishwakarma ने मुझे बनाया है। चलो English practice करते हैं!"
+"owner कौन" → "Priyanshu Vishwakarma मेरे creator हैं। क्या आप conversation practice करना चाहेंगे?"`
 
-  : `You are an advanced English practice AI assistant for ${user.profile.name}, acting like a skilled English teacher with strong technology knowledge.
+  : `You are a friendly English speaking practice assistant for ${user.profile.name}.
 
 Identity:
 - Name: "English Practice Assistant"
 - Creator: Priyanshu Vishwakarma
 - Owner: Priyanshu Vishwakarma
-- Purpose: Teach English, clarify concepts, and assist with high-tech topics.
 
-Communication Rules:
-- Prefer English by default.
-- Replies must be short, clear, and limited to 1–2 sentences.
-- Do NOT provide code unless the user explicitly asks.
-- If the user says "explain", "tell in detail", or "describe", you may use 5+ lines.
-- Maintain a teacher-like tone with strong grammar, vocabulary, and technical clarity.
+Speaking Practice Rules (CRITICAL):
+1. Reply in natural spoken English - NEVER use asterisks (*), italics, bold, or any formatting
+2. Speak simply and clearly - like friends talking
+3. Keep replies to 1-2 short sentences - direct and conversational
+4. Correct grammar mistakes politely without asterisks or special formatting
+5. Encourage natural speaking style
+6. You can suggest roleplay scenarios and practice dialogues
+
+Example Good Replies:
+❌ BAD: "Oh, that's *wonderful*! You're doing **great**!"
+✅ GOOD: "Oh that's wonderful! You're doing great!"
+
+❌ BAD: "*nervously* I think we should practice more..."
+✅ GOOD: "I think we should practice more. Are you ready?"
+
+❌ BAD: "A: Hey, how are you?  **B:** I'm good, thanks!"
+✅ GOOD: "Hey, how are you? I'm good thanks! How about you?"
 
 Identity Answers:
-"What is your name?" → "I'm an English practice assistant created by Priyanshu Vishwakarma."
-"Who made you?" → "I was created by Priyanshu Vishwakarma."
-"Who is your owner?" → "Priyanshu Vishwakarma is my creator and owner."`;
-
+"What is your name?" → "I'm your English speaking practice assistant created by Priyanshu Vishwakarma. What would you like to talk about today?"
+"Who made you?" → "I was created by Priyanshu Vishwakarma. Let's practice some English!"
+"Who is your owner?" → "Priyanshu Vishwakarma is my creator. Ready for conversation practice?"`;
 
     console.log('📋 Language mode:', aiResponseLanguage === 'hi' ? 'HINDI' : 'ENGLISH');
 
@@ -137,14 +164,31 @@ Identity Answers:
       const completion = await groqClient.chat.completions.create({
         model: "groq/compound-mini",
         messages: messages,
-        max_tokens: 60,
-        temperature: 0.5,
+        max_tokens: 80,
+        temperature: 0.7,
       });
 
       aiResponse = completion.choices?.[0]?.message?.content?.trim() || "Tell me more!";
       console.log('🤖 Groq response:', aiResponse);
       
-      // FORCE HINDI and CORRECT IDENTITY
+      // CLEAN UP: Remove ALL formatting asterisks, bold, italics
+      aiResponse = aiResponse
+        .replace(/\*\*/g, '')      // Remove bold
+        .replace(/\*/g, '')        // Remove asterisks
+        .replace(/_/g, '')         // Remove underscores
+        .replace(/\[/g, '')        // Remove brackets
+        .replace(/\]/g, '')
+        .replace(/\*\*\*/g, '')
+        .replace(/~~~/g, '')
+        .replace(/A:/gi, '')       // Remove dialogue labels
+        .replace(/B:/gi, '')
+        .replace(/Person A:/gi, '')
+        .replace(/Person B:/gi, '')
+        .trim();
+
+      console.log('🧹 Cleaned response:', aiResponse);
+      
+      // Validation for Hindi responses
       if (aiResponseLanguage === 'hi') {
         const hasHindiChars = /[\u0900-\u097F]/.test(aiResponse);
         const englishWordCount = (aiResponse.match(/\b[a-zA-Z]+\b/g) || []).length;
@@ -153,46 +197,33 @@ Identity Answers:
                                  aiResponse.includes('कंपाउंड') ||
                                  aiResponse.includes('ग्रूक');
         
-        console.log('🔍 Validation:');
-        console.log('   - Hindi chars:', hasHindiChars);
-        console.log('   - English words:', englishWordCount);
-        console.log('   - Wrong identity:', hasWrongIdentity);
-        
-        // Force Hindi fallback if needed
         if (!hasHindiChars || englishWordCount > 5 || hasWrongIdentity) {
           console.log('⚠️ FORCING HINDI FALLBACK');
           const msgLower = message.toLowerCase();
           
           if (msgLower.includes("नाम") || msgLower.includes("name")) {
-            aiResponse = "मैं English practice करने वाली AI assistant हूँ। Priyanshu Vishwakarma ने मुझे बनाया है। आज किस topic पर बात करेंगे?";
-          } else if (msgLower.includes("किसने बनाया") || msgLower.includes("who made") || msgLower.includes("who created")) {
-            aiResponse = "मुझे Priyanshu Vishwakarma ने बनाया है। वह मेरे creator हैं। क्या आप English practice करना चाहेंगे?";
-          } else if (msgLower.includes("owner") || msgLower.includes("मालिक") || msgLower.includes("ओनर")) {
-            aiResponse = "Priyanshu Vishwakarma मेरे creator और owner हैं। आज आप किस बारे में बात करना चाहेंगे?";
-          } else if (msgLower.includes("हेलो") || msgLower.includes("hello") || msgLower.includes("नमस्ते") || msgLower.includes("hi")) {
-            aiResponse = "नमस्ते! मैं आपकी English सीखने में मदद करूंगी। आज क्या बात करना चाहेंगे?";
-          } else if (msgLower.includes("कौन") || msgLower.includes("who")) {
-            aiResponse = "मैं Priyanshu Vishwakarma की बनाई हुई English tutor हूँ। किस बारे में बात करना पसंद करेंगे?";
-          } else if (msgLower.includes("क्या कर")) {
-            aiResponse = "मैं आपकी English practice में मदद कर रही हूँ। आज कौन सा topic choose करेंगे?";
+            aiResponse = "मैं English speaking practice assistant हूँ। Priyanshu Vishwakarma ने मुझे बनाया है। आज किस topic पर बात करेंगे?";
+          } else if (msgLower.includes("practice") || msgLower.includes("conversation")) {
+            aiResponse = "बिल्कुल! चलो natural conversation practice करते हैं। आप कैसे हैं आज?";
+          } else if (msgLower.includes("हेलो") || msgLower.includes("hello") || msgLower.includes("hi")) {
+            aiResponse = "नमस्ते! मैं आपकी English speaking में मदद करूंगी। किस बारे में बात करेंगे?";
           } else {
-            aiResponse = "बहुत अच्छा! आज आप किस topic पर conversation practice करना चाहेंगे?";
+            aiResponse = "बहुत अच्छे! चलो English में बात करते हैं। आपका दिन कैसा रहा?";
           }
-          console.log('✅ Fallback used:', aiResponse);
         }
       } else {
-        // Check for wrong identity in English too
+        // Check English responses too
         const hasWrongIdentity = aiResponse.toLowerCase().includes('compound') || 
                                  aiResponse.toLowerCase().includes('groq');
         
         if (hasWrongIdentity) {
           const msgLower = message.toLowerCase();
           if (msgLower.includes("name")) {
-            aiResponse = "I'm an English practice assistant created by Priyanshu Vishwakarma. What topic would you like to discuss?";
-          } else if (msgLower.includes("who made") || msgLower.includes("who created")) {
-            aiResponse = "I was created by Priyanshu Vishwakarma. Shall we practice English?";
-          } else if (msgLower.includes("owner")) {
-            aiResponse = "Priyanshu Vishwakarma is my creator and owner. What would you like to talk about today?";
+            aiResponse = "I'm your English speaking practice assistant created by Priyanshu Vishwakarma. What would you like to talk about?";
+          } else if (msgLower.includes("practice") || msgLower.includes("conversation")) {
+            aiResponse = "Yes! Let's practice natural conversation. How are you today?";
+          } else if (msgLower.includes("hello") || msgLower.includes("hi")) {
+            aiResponse = "Hello! I'll help you practice English speaking. What topic interests you?";
           }
         }
       }
@@ -202,23 +233,21 @@ Identity Answers:
       const msg = message.toLowerCase();
       
       if (aiResponseLanguage === 'hi') {
-        if (msg.includes("नाम") || msg.includes("name")) {
-          aiResponse = "मैं English practice assistant हूँ। Priyanshu Vishwakarma ने मुझे बनाया है।";
-        } else if (msg.includes("किसने बनाया") || msg.includes("who made") || msg.includes("who created")) {
-          aiResponse = "मुझे Priyanshu Vishwakarma ने बनाया है।";
-        } else if (msg.includes("owner") || msg.includes("मालिक") || msg.includes("ओनर")) {
-          aiResponse = "Priyanshu Vishwakarma मेरे creator और owner हैं।";
-        } else if (msg.includes("हेलो") || msg.includes("hello") || msg.includes("नमस्ते")) {
-          aiResponse = "नमस्ते! आप कैसे हैं?";
+        if (msg.includes("practice") || msg.includes("conversation")) {
+          aiResponse = "चलो English conversation practice करते हैं। आप कैसे हैं?";
+        } else if (msg.includes("हेलो") || msg.includes("hello") || msg.includes("hi")) {
+          aiResponse = "नमस्ते! आज हम किस बारे में बात करेंगे?";
         } else {
-          aiResponse = "बहुत अच्छा! किस बारे में बात करेंगे?";
+          aiResponse = "बहुत अच्छा! चलो बात करते हैं।";
         }
       } else {
-        if (msg.includes("name")) aiResponse = "I'm an English practice assistant by Priyanshu Vishwakarma.";
-        else if (msg.includes("who made") || msg.includes("who created")) aiResponse = "I was created by Priyanshu Vishwakarma.";
-        else if (msg.includes("owner")) aiResponse = "Priyanshu Vishwakarma is my creator and owner.";
-        else if (msg.includes("hello") || msg.includes("hi")) aiResponse = "Hello! How are you?";
-        else aiResponse = "Tell me more!";
+        if (msg.includes("practice") || msg.includes("conversation")) {
+          aiResponse = "Let's practice! How was your day?";
+        } else if (msg.includes("hello") || msg.includes("hi")) {
+          aiResponse = "Hello! What would you like to talk about?";
+        } else {
+          aiResponse = "That's interesting! Tell me more.";
+        }
       }
     }
 
@@ -245,7 +274,7 @@ Identity Answers:
     user.statistics.lastActive = new Date();
     await user.save();
 
-    console.log('📤 Final response:', aiResponse);
+    console.log('📤 Final clean response:', aiResponse);
     console.log('===== END REQUEST =====\n');
     
     res.json({
@@ -256,6 +285,7 @@ Identity Answers:
     });
   } catch (error) {
     console.error("❌ Error:", error);
+    console.error("❌ Stack trace:", error.stack);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 });

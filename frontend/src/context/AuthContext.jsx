@@ -1,9 +1,7 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext();
-
-export const useAuth = () => useContext(AuthContext);
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -12,85 +10,73 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      verifyToken(token);
-    } else {
-      setLoading(false);
-    }
+    const verifyToken = async () => {
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const response = await axios.get(`${API_URL}/auth/verify`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        setUser(response.data.user);
+      } catch (error) {
+        console.error('Token verification failed:', error);
+        localStorage.removeItem('token');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    verifyToken();
   }, []);
 
-  const verifyToken = async (token) => {
+  const signup = async (userData) => {
+    console.log('Attempting signup to:', `${API_URL}/auth/signup`);
+    console.log('Signup data:', userData);
+    
     try {
-      const response = await axios.get(`${API_URL}/auth/verify`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setUser(response.data.user);
-    } catch (error) {
-      console.error('Token verification failed:', error);
-      localStorage.removeItem('token');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const signup = async (name, email, password, proficiencyLevel) => {
-    try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-      console.log('Attempting signup to:', `${API_URL}/auth/signup`);
+      const response = await axios.post(`${API_URL}/auth/signup`, userData);
       
-      const response = await axios.post(`${API_URL}/auth/signup`, {
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-        password,
-        proficiencyLevel
-      });
-
-      const { token, user } = response.data;
-      localStorage.setItem('token', token);
-      setUser(user);
       console.log('✅ Signup successful');
-    } catch (error) {
-      console.error('Signup error:', error.response?.data || error);
       
-      // Better error handling
-      if (error.response?.data?.errors) {
-        const errorMessages = error.response.data.errors.map(err => err.message).join(', ');
-        throw new Error(errorMessages);
-      } else if (error.response?.data?.message) {
-        throw new Error(error.response.data.message);
-      } else {
-        throw new Error('Signup failed. Please try again.');
+      const { token, user: userInfo } = response.data;
+      localStorage.setItem('token', token);
+      setUser(userInfo);
+    } catch (error) {
+      console.error('Signup error:', error);
+      
+      if (error.response?.data) {
+        throw error.response;
       }
+      
+      throw new Error('Signup failed. Please try again.');
     }
   };
 
-  const login = async (email, password) => {
+  const login = async (credentials) => {
+    console.log('Attempting login to:', `${API_URL}/auth/login`);
+    
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-      console.log('Attempting login to:', `${API_URL}/auth/login`);
+      const response = await axios.post(`${API_URL}/auth/login`, credentials);
       
-      const response = await axios.post(`${API_URL}/auth/login`, {
-        email: email.trim().toLowerCase(),
-        password
-      });
-
-      const { token, user } = response.data;
-      localStorage.setItem('token', token);
-      setUser(user);
       console.log('✅ Login successful');
-    } catch (error) {
-      console.error('Login error:', error.response?.data || error);
       
-      // Better error handling
-      if (error.response?.data?.errors) {
-        const errorMessages = error.response.data.errors.map(err => err.message).join(', ');
-        throw new Error(errorMessages);
-      } else if (error.response?.data?.message) {
-        throw new Error(error.response.data.message);
-      } else {
-        throw new Error('Login failed. Please try again.');
+      const { token, user: userInfo } = response.data;
+      localStorage.setItem('token', token);
+      setUser(userInfo);
+    } catch (error) {
+      console.error('Login error:', error);
+      
+      if (error.response?.data) {
+        throw error.response;
       }
+      
+      throw new Error('Login failed. Please check your credentials.');
     }
   };
 
@@ -100,8 +86,16 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, setUser, login, signup, logout, loading }}>
+    <AuthContext.Provider value={{ user, loading, signup, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 };

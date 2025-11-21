@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
-import { ArrowLeft, User, Mail, Trophy, Moon, Sun } from 'lucide-react';
 import Navbar from './Navbar';
+import { User, Mail, Trophy, AlertCircle } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
@@ -14,6 +14,8 @@ const Profile = () => {
   const [proficiencyLevel, setProficiencyLevel] = useState('beginner');
   const [loading, setLoading] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   // Listen for dark mode changes
   useEffect(() => {
@@ -32,49 +34,41 @@ const Profile = () => {
     }
   }, [user]);
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
-    localStorage.setItem('darkMode', darkMode);
-  }, [darkMode]);
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setError('');
+    setSuccess('');
 
     try {
       const token = localStorage.getItem('token');
-      await axios.put(
+      console.log('📤 Updating profile:', { name, proficiencyLevel });
+      
+      const response = await axios.put(
         `${API_URL}/user/profile`,
         { name, proficiencyLevel },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
-      showToast('Profile updated successfully!', 'success');
-      window.location.reload();
+      console.log('✅ Profile updated:', response.data);
+      setSuccess('Profile updated successfully!');
+      
+      // Reload after 1 second to fetch updated user data
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
     } catch (error) {
-      console.error('Error updating profile:', error);
-      showToast('Failed to update profile', 'error');
+      console.error('❌ Error updating profile:', error);
+      setError(error.response?.data?.message || 'Failed to update profile');
     } finally {
       setLoading(false);
     }
   };
 
-  const showToast = (message, type = 'success') => {
-    const toastDiv = document.createElement('div');
-    const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
-    toastDiv.className = `fixed top-20 right-4 ${bgColor} text-white px-6 py-3 rounded-xl shadow-2xl z-50`;
-    toastDiv.textContent = message;
-    document.body.appendChild(toastDiv);
-    setTimeout(() => toastDiv.remove(), 3000);
-  };
-
-  const toggleDarkMode = () => setDarkMode(!darkMode);
-
   return (
     <div className="min-h-screen" style={{ background: darkMode ? '#343541' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
       <Navbar />
       
-      {/* Content with top padding */}
       <div className="pt-14 sm:pt-16 md:pt-18">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
           <div className="rounded-2xl p-6 sm:p-8 shadow-xl border-2" style={{
@@ -100,6 +94,22 @@ const Profile = () => {
                 </p>
               </div>
             </div>
+
+            {/* Success Message */}
+            {success && (
+              <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-2">
+                <AlertCircle className="text-green-500 flex-shrink-0 mt-0.5" size={18} />
+                <p className="text-sm text-green-700">{success}</p>
+              </div>
+            )}
+
+            {/* Error Message */}
+            {error && (
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={18} />
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            )}
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-6">

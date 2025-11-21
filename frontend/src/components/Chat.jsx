@@ -31,6 +31,7 @@ const Chat = () => {
   const [permissionError, setPermissionError] = useState('');
   const [isMobile, setIsMobile] = useState(false);
   const [browserInfo, setBrowserInfo] = useState('');
+  const [liveTranscript, setLiveTranscript] = useState(''); // NEW: Show live transcript
 
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -40,6 +41,16 @@ const Chat = () => {
   const isPausedRef = useRef(false);
   const userSpeakLanguageRef = useRef('en');
   const aiResponseLanguageRef = useRef('en');
+  const silenceTimerRef = useRef(null);
+  const interimTranscriptRef = useRef('');
+  const finalTranscriptRef = useRef('');
+  const isProcessingRef = useRef(false); // NEW: Prevent double processing
+  const lastProcessedTranscriptRef = useRef(''); // NEW: Track last processed text
+  const lastSavedTranscriptRef = useRef(''); // NEW: Prevent saving same message twice
+  const speechTimeoutRef = useRef(null); // NEW: Track speech timeout
+  const hasProcessedRef = useRef(false); // NEW: Track if we've already processed
+  const accumulatedTranscriptRef = useRef(''); // NEW: Accumulate across pauses
+  const isUserStillSpeakingRef = useRef(false); // NEW: Track if user is building a sentence
 
   // Apply dark mode
   useEffect(() => {
@@ -131,60 +142,132 @@ const Chat = () => {
 
     recognitionRef.current = new SpeechRecognition();
     
-    // Mobile-specific settings
-    if (isMobile) {
-      console.log('📱 Configuring for mobile...');
-      recognitionRef.current.continuous = false; // Better for mobile
-      recognitionRef.current.interimResults = false; // More reliable on mobile
-    } else {
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-    }
-    
+    recognitionRef.current.continuous = true;
+    recognitionRef.current.interimResults = true;
     recognitionRef.current.maxAlternatives = 1;
     
     recognitionRef.current.onstart = () => {
       console.log('🎤 Started listening');
       setIsListening(true);
-      setPermissionError(''); // Clear any errors
+      setPermissionError('');
+      
+      // DON'T clear accumulated transcript if user is continuing
+      if (!isUserStillSpeakingRef.current) {
+        accumulatedTranscriptRef.current = '';
+        console.log('🆕 Starting fresh sentence');
+      } else {
+        console.log('➕ Continuing existing sentence:', accumulatedTranscriptRef.current);
+      }
+      
+      setLiveTranscript(accumulatedTranscriptRef.current); // Show what we have so far
+      interimTranscriptRef.current = '';
+      finalTranscriptRef.current = '';
+      isProcessingRef.current = false;
+      hasProcessedRef.current = false;
     };
     
     recognitionRef.current.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      const confidence = event.results[0][0].confidence;
-      
-      console.log('📝 Got transcript:', transcript);
-      console.log('Confidence:', confidence);
-      console.log('Auto mode (ref):', autoModeRef.current, 'Is paused (ref):', isPausedRef.current);
-      
-      // Check if transcript is meaningful (not just noise/silence)
-      if (!transcript || transcript.trim().length < 2) {
-        console.log('⚠️ Empty or too short transcript, restarting listening...');
-        setIsListening(false);
-        // Restart listening in auto mode
-        if (autoModeRef.current && !isPausedRef.current) {
-          setTimeout(() => startListening(), 500);
-        }
+      if (hasProcessedRef.current || isProcessingRef.current) {
+        console.log('⏭️ Already processed - ignoring');
         return;
       }
+
+      let interimTranscript = '';
+      let finalTranscript = '';
       
-      // Use REF instead of state for immediate access
-      if (autoModeRef.current && !isPausedRef.current && transcript.trim()) {
-        console.log('✅ Auto-mode ACTIVE: Calling sendMessageDirect...');
-        setIsListening(false);
-        setTimeout(() => {
-          sendMessageDirect(transcript);
-        }, 200);
+      const lastResultIndex = event.results.length - 1;
+      const lastResult = event.results[lastResultIndex];
+      
+      if (lastResult.isFinal) {
+        finalTranscript = lastResult[0].transcript.trim();
+        
+        // ACCUMULATE the final transcript
+        if (finalTranscript) {
+          accumulatedTranscriptRef.current = (accumulatedTranscriptRef.current + ' ' + finalTranscript).trim();
+          isUserStillSpeakingRef.current = true; // Mark that user is building a sentence
+          console.log('📝 Accumulated so far:', accumulatedTranscriptRef.current);
+        }
       } else {
-        console.log('ℹ️ Normal mode: Updating inputText');
-        setInputText(transcript);
-        setIsListening(false);
+        interimTranscript = lastResult[0].transcript.trim();
+      }
+      
+      // Show accumulated + current interim
+      const currentDisplay = (accumulatedTranscriptRef.current + ' ' + interimTranscript).trim();
+      setLiveTranscript(currentDisplay);
+      
+      if (speechTimeoutRef.current) {
+        clearTimeout(speechTimeoutRef.current);
+      }
+      
+      // Set 2-second timer for COMPLETE sentence
+      if (lastResult.isFinal) {
+        console.log('⏱️ Starting 2s silence timer (waiting for more or complete)...');
+        
+        speechTimeoutRef.current = setTimeout(() => {
+          if (hasProcessedRef.current || isProcessingRef.current) {
+            console.log('⏭️ Already processed - skipping');
+            return;
+          }
+
+          const fullSentence = accumulatedTranscriptRef.current.trim();
+          
+          console.log('🔔 2s silence - Complete sentence:', fullSentence);
+          
+          // Check for duplicate
+          if (fullSentence === lastProcessedTranscriptRef.current) {
+            console.log('⏭️ DUPLICATE - skipping');
+            hasProcessedRef.current = true;
+            recognitionRef.current?.stop();
+            return;
+          }
+          
+          if (!fullSentence || fullSentence.length < 2) {
+            console.log('⚠️ Too short - skipping');
+            recognitionRef.current?.stop();
+            return;
+          }
+          
+          // PROCESS THE COMPLETE SENTENCE
+          hasProcessedRef.current = true;
+          isProcessingRef.current = true;
+          lastProcessedTranscriptRef.current = fullSentence;
+          isUserStillSpeakingRef.current = false; // Reset for next sentence
+          
+          console.log('✅ SENDING COMPLETE SENTENCE:', fullSentence);
+          
+          recognitionRef.current?.stop();
+          setIsListening(false);
+          
+          if (autoModeRef.current && !isPausedRef.current) {
+            setLiveTranscript('');
+            const messageToSend = fullSentence;
+            accumulatedTranscriptRef.current = ''; // Clear after sending
+            
+            setTimeout(() => {
+              sendMessageDirect(messageToSend);
+            }, 200);
+          } else {
+            setInputText(fullSentence);
+            setLiveTranscript('');
+            accumulatedTranscriptRef.current = ''; // Clear
+            isProcessingRef.current = false;
+            hasProcessedRef.current = false;
+          }
+        }, 2000); // 2 seconds - enough time to think and continue
       }
     };
     
     recognitionRef.current.onerror = (event) => {
       console.error('❌ Speech error:', event.error);
+      
+      if (speechTimeoutRef.current) {
+        clearTimeout(speechTimeoutRef.current);
+      }
+      
+      hasProcessedRef.current = false;
+      isProcessingRef.current = false;
       setIsListening(false);
+      setLiveTranscript('');
       
       // Mobile-specific error handling
       if (event.error === 'not-allowed' || event.error === 'permission-denied') {
@@ -208,8 +291,8 @@ const Chat = () => {
         return;
       }
       
-      // If error in auto mode, try restarting
-      if (autoModeRef.current && !isPausedRef.current && event.error !== 'aborted') {
+      // Restart in auto mode after error
+      if (autoModeRef.current && !isPausedRef.current && event.error !== 'aborted' && event.error !== 'no-speech') {
         setTimeout(() => {
           console.log('🔄 Restarting after error...');
           startListening();
@@ -219,10 +302,24 @@ const Chat = () => {
     
     recognitionRef.current.onend = () => {
       console.log('🛑 Recognition ended');
+      
+      if (speechTimeoutRef.current) {
+        clearTimeout(speechTimeoutRef.current);
+      }
+      
       setIsListening(false);
+      
+      // If user is still building a sentence, restart listening
+      if (isUserStillSpeakingRef.current && !hasProcessedRef.current && autoModeRef.current && !isPausedRef.current && !loading) {
+        console.log('🔄 User paused - restarting to continue sentence...');
+        setTimeout(() => startListening(), 300); // Quick restart
+      } else if (!hasProcessedRef.current && autoModeRef.current && !isPausedRef.current && !loading) {
+        console.log('🔄 No processing - normal restart...');
+        setTimeout(() => startListening(), 1000);
+      }
     };
 
-    console.log('✅ Speech recognition initialized');
+    console.log('✅ Speech recognition initialized (with sentence accumulation)');
     setPermissionError('');
   };
 
@@ -259,12 +356,11 @@ const Chat = () => {
   const startListening = async () => {
     if (!recognitionRef.current) {
       console.error('❌ Speech recognition not initialized');
-      setPermissionError('Speech recognition not available. Please refresh the page.');
       return;
     }
 
-    if (isListening || isPaused || loading) {
-      console.log('⚠️ Cannot start listening - listening:', isListening, 'paused:', isPaused, 'loading:', loading);
+    if (isListening || isPaused || loading || isProcessingRef.current) {
+      console.log('⚠️ Cannot start - listening:', isListening, 'paused:', isPaused, 'loading:', loading, 'processing:', isProcessingRef.current);
       return;
     }
 
@@ -300,11 +396,24 @@ const Chat = () => {
         }
       }
 
-      // Set language
       recognitionRef.current.lang = userSpeakLanguageRef.current === 'hi' ? 'hi-IN' : 'en-US';
-      console.log('🎤 Starting recognition with language:', recognitionRef.current.lang);
+      console.log('🎤 Starting recognition (accumulated mode)');
       
-      // Start recognition
+      // Don't clear accumulated if user is continuing
+      if (!isUserStillSpeakingRef.current) {
+        setLiveTranscript('');
+        accumulatedTranscriptRef.current = '';
+      }
+      
+      interimTranscriptRef.current = '';
+      finalTranscriptRef.current = '';
+      isProcessingRef.current = false;
+      hasProcessedRef.current = false;
+      
+      if (speechTimeoutRef.current) {
+        clearTimeout(speechTimeoutRef.current);
+      }
+      
       recognitionRef.current.start();
       
     } catch (error) {
@@ -362,17 +471,21 @@ const Chat = () => {
 
   const sendMessageDirect = async (messageText = inputText) => {
     console.log('🚀 sendMessageDirect called with:', messageText);
-    console.log('🌍 Current language settings - User:', userSpeakLanguageRef.current, 'AI:', aiResponseLanguageRef.current);
     
     if (!messageText.trim()) {
       console.log('⚠️ Empty message, skipping');
+      isProcessingRef.current = false;
+      hasProcessedRef.current = false;
+      lastProcessedTranscriptRef.current = '';
+      accumulatedTranscriptRef.current = ''; // Clear
+      isUserStillSpeakingRef.current = false;
       if (autoModeRef.current && !isPausedRef.current) {
         setTimeout(() => startListening(), 1000);
       }
       return;
     }
 
-    console.log('📤 Sending message DIRECTLY:', messageText);
+    console.log('📤 Sending COMPLETE message:', messageText);
     setLoading(true);
 
     const userMessage = {
@@ -421,9 +534,13 @@ const Chat = () => {
       }
       
       setLoading(false);
-      console.log('✅ Loading set to false, now speaking...');
+      isProcessingRef.current = false;
+      hasProcessedRef.current = false;
+      accumulatedTranscriptRef.current = ''; // Clear for next sentence
+      isUserStillSpeakingRef.current = false; // Reset
+      console.log('✅ Processing flags reset');
       
-      // Speak in AI's response language - use REF
+      // Speak in AI's response language
       const speechLang = aiResponseLanguageRef.current === 'hi' ? 'hi-IN' : 'en-US';
       
       console.log('🔊 Speaking AI response in:', speechLang);
@@ -435,23 +552,20 @@ const Chat = () => {
       console.log('✅ Speech completed');
       setIsSpeaking(false);
       
-      // INCREASED DELAY: Wait 2 seconds before restarting (was 1 second)
+      // Restart listening
       if (autoModeRef.current && !isPausedRef.current) {
-        console.log('🎤 Will restart listening in 2 seconds...');
-        setTimeout(() => {
-          if (autoModeRef.current && !isPausedRef.current) {
-            console.log('✅ Conditions met - restarting listening now');
-            startListening();
-          } else {
-            console.log('❌ Conditions not met - autoMode:', autoModeRef.current, 'paused:', isPausedRef.current);
-          }
-        }, 2000); // INCREASED from 1000 to 2000ms
+        console.log('🎤 Restarting for NEW sentence...');
+        lastProcessedTranscriptRef.current = ''; // Clear to allow new input
+        startListening();
       }
       
     } catch (error) {
       console.error('❌ Error sending message:', error);
       setMessages(prev => prev.filter(msg => msg.content !== messageText));
       setLoading(false);
+      isProcessingRef.current = false;
+      hasProcessedRef.current = false;
+      lastProcessedTranscriptRef.current = '';
       
       const errorMsg = error.response?.data?.message || error.message || 'Network error';
       showToast(`Failed: ${errorMsg}`, 'error');
@@ -569,6 +683,13 @@ const Chat = () => {
   };
 
   const saveMessage = async (userMsg, aiMsg) => {
+    // Prevent saving duplicate AI messages
+    if (lastSavedTranscriptRef.current === aiMsg) {
+      console.log('⏭️ Already saved this message - skipping');
+      showToast('Already saved!', 'info');
+      return;
+    }
+
     try {
       const token = localStorage.getItem('token');
       const response = await axios.post(
@@ -579,6 +700,8 @@ const Chat = () => {
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      
+      lastSavedTranscriptRef.current = aiMsg; // Mark as saved
       
       setSavedMessageMap(prev => ({
         ...prev,
@@ -959,7 +1082,50 @@ const Chat = () => {
         </div>
       )}
 
-      {/* Messages - Fixed padding to prevent overlap */}
+      {/* LIVE TRANSCRIPT - DEDICATED FLOATING BOX (only in auto mode) */}
+      {autoMode && liveTranscript && isListening && (
+        <div 
+          className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[999] animate-fade-in"
+          style={{
+            maxWidth: 'calc(100% - 32px)',
+            width: '600px'
+          }}
+        >
+          <div 
+            className="rounded-2xl px-4 sm:px-6 py-3 sm:py-4 shadow-2xl border-2"
+            style={{
+              background: darkMode 
+                ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(5, 150, 105, 0.15))' 
+                : 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.1))',
+              borderColor: '#10b981',
+              backdropFilter: 'blur(10px)'
+            }}
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <div className="relative">
+                <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
+                <div className="absolute inset-0 w-3 h-3 rounded-full bg-green-500 opacity-50 animate-ping"></div>
+              </div>
+              <p className="text-sm sm:text-base font-bold" style={{ 
+                color: darkMode ? '#10b981' : '#047857' 
+              }}>
+                You're speaking...
+              </p>
+            </div>
+            <p 
+              className="text-base sm:text-lg md:text-xl font-semibold italic leading-relaxed"
+              style={{ 
+                color: darkMode ? '#ffffff' : '#1f2937',
+                textShadow: darkMode ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(255,255,255,0.5)'
+              }}
+            >
+              "{liveTranscript}"
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Messages */}
       <div 
         className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6" 
         style={{ 
@@ -1046,6 +1212,9 @@ const Chat = () => {
                 </div>
               );
             })}
+            
+            {/* Remove old live transcript from messages - keep only in dedicated box */}
+            
             <div ref={messagesEndRef} />
           </div>
         )}
@@ -1090,7 +1259,7 @@ const Chat = () => {
         </div>
       )}
 
-      {/* Input Area - FIXED with proper z-index */}
+      {/* Input Area - Show live transcript ONLY in chat mode (not auto) */}
       {!autoMode && (
         <div 
           className="sticky-bottom safe-bottom"
@@ -1111,45 +1280,77 @@ const Chat = () => {
               : '0 -2px 10px rgba(0, 0, 0, 0.1)'
           }}
         >
-          <div className="max-w-3xl mx-auto flex items-end gap-2">
-            <div className="flex-1 rounded-2xl border overflow-hidden" style={{
-              background: darkMode ? '#40414f' : '#f3f4f6',
-              borderColor: darkMode ? '#565869' : '#d1d5db'
-            }}>
-              <textarea
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder={userSpeakLanguage === 'hi' ? 'हिंदी में टाइप करें...' : 'Type in English...'}
-                rows={1}
-                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-transparent resize-none outline-none text-sm sm:text-base"
-                style={{ 
-                  color: darkMode ? '#ececf1' : '#1f2937',
-                  maxHeight: '100px',
-                  fontSize: '16px'
+          <div className="max-w-3xl mx-auto">
+            {/* Live transcript in chat mode */}
+            {liveTranscript && isListening && (
+              <div 
+                className="mb-3 px-4 py-3 rounded-xl border-2 animate-fade-in"
+                style={{
+                  background: darkMode 
+                    ? 'linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(5, 150, 105, 0.15))' 
+                    : 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(5, 150, 105, 0.1))',
+                  borderColor: '#10b981'
                 }}
-              />
+              >
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div className="relative">
+                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                    <div className="absolute inset-0 w-2 h-2 rounded-full bg-green-500 opacity-50 animate-ping"></div>
+                  </div>
+                  <p className="text-xs sm:text-sm font-bold" style={{ 
+                    color: darkMode ? '#10b981' : '#047857' 
+                  }}>
+                    Listening...
+                  </p>
+                </div>
+                <p className="text-sm sm:text-base font-semibold italic" style={{ 
+                  color: darkMode ? '#ffffff' : '#1f2937' 
+                }}>
+                  "{liveTranscript}"
+                </p>
+              </div>
+            )}
+            
+            <div className="flex items-end gap-2">
+              <div className="flex-1 rounded-2xl border overflow-hidden" style={{
+                background: darkMode ? '#40414f' : '#f3f4f6',
+                borderColor: darkMode ? '#565869' : '#d1d5db'
+              }}>
+                <textarea
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder={userSpeakLanguage === 'hi' ? 'हिंदी में टाइप करें...' : 'Type in English...'}
+                  rows={1}
+                  className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-transparent resize-none outline-none text-sm sm:text-base"
+                  style={{ 
+                    color: darkMode ? '#ececf1' : '#1f2937',
+                    maxHeight: '100px',
+                    fontSize: '16px'
+                  }}
+                />
+              </div>
+
+              <button 
+                onClick={handleVoiceInput}
+                className={`p-2.5 sm:p-3 rounded-full transition-all flex-shrink-0 ${isListening ? 'animate-pulse' : ''}`}
+                style={{ 
+                  background: isListening ? '#ef4444' : '#10b981',
+                  color: '#ffffff'
+                }}
+              >
+                {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+              </button>
+
+              <button 
+                onClick={() => sendMessage()} 
+                disabled={!inputText.trim() || loading}
+                className="p-2.5 sm:p-3 rounded-full transition-all disabled:opacity-50 flex-shrink-0"
+                style={{ background: '#10b981', color: '#ffffff' }}
+              >
+                <Send size={18} />
+              </button>
             </div>
-
-            <button 
-              onClick={handleVoiceInput}
-              className={`p-2.5 sm:p-3 rounded-full transition-all flex-shrink-0 ${isListening ? 'animate-pulse' : ''}`}
-              style={{ 
-                background: isListening ? '#ef4444' : '#10b981',
-                color: '#ffffff'
-              }}
-            >
-              {isListening ? <MicOff size={18} /> : <Mic size={18} />}
-            </button>
-
-            <button 
-              onClick={() => sendMessage()} 
-              disabled={!inputText.trim() || loading}
-              className="p-2.5 sm:p-3 rounded-full transition-all disabled:opacity-50 flex-shrink-0"
-              style={{ background: '#10b981', color: '#ffffff' }}
-            >
-              <Send size={18} />
-            </button>
           </div>
         </div>
       )}
@@ -1180,7 +1381,7 @@ const Chat = () => {
                   {isPaused ? '⏸️ Paused' : isListening ? '🎤 Listening...' : isSpeaking ? '🔊 Speaking...' : loading ? '⏳ Processing...' : '✅ Ready'}
                 </p>
                 <p className="text-xs sm:text-sm opacity-90 mt-0.5">
-                  {isPaused ? 'Resume to continue' : 'Speak naturally'}
+                  {isPaused ? 'Resume to continue' : isListening ? 'Keep speaking...' : 'Speak naturally'}
                 </p>
               </div>
               

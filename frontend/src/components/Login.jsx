@@ -1,158 +1,168 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { LogIn, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { BookOpen, Mail, Lock, AlertCircle } from 'lucide-react';
 
 const Login = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [formData, setFormData] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
+  const [validationErrors, setValidationErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const [darkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
+  
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    // Clear errors when typing
+    if (validationErrors[name]) {
+      setValidationErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[name];
+        return newErrors;
+      });
+    }
+    if (error) setError('');
+  };
+
+  const validateForm = () => {
+    const errors = {};
+    
+    if (!formData.email) {
+      errors.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      errors.email = 'Please enter a valid email';
+    }
+    
+    if (!formData.password) {
+      errors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      errors.password = 'Password must be at least 6 characters';
+    }
+    
+    return errors;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
+    
+    const errors = validateForm();
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(errors);
+      return;
+    }
+    
     setLoading(true);
+    setError('');
+    setValidationErrors({});
 
     try {
-      await login(email, password);
+      await login(formData);
       navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed. Please try again.');
+      console.error('Login error:', err);
+      
+      if (err.response?.data?.errors) {
+        const backendErrors = {};
+        err.response.data.errors.forEach(error => {
+          backendErrors[error.path] = error.msg;
+        });
+        setValidationErrors(backendErrors);
+      } else {
+        setError(err.response?.data?.message || 'Login failed. Please check your credentials.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="page-container scroll-page min-h-screen flex items-center justify-center px-4 py-8" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+    <div className="min-h-screen flex items-center justify-center p-4" style={{
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+    }}>
       <div className="w-full max-w-md">
-        <div className="rounded-3xl shadow-2xl p-8 sm:p-10" style={{
-          background: darkMode ? '#2c2d37' : '#ffffff'
-        }}>
-          {/* Icon */}
-          <div className="flex justify-center mb-6">
-            <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-            }}>
-              <LogIn size={32} className="text-white" />
-            </div>
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-3 text-white">
+            <BookOpen size={40} />
+            <h1 className="text-4xl font-bold">LangLearn</h1>
           </div>
+          <p className="text-white/90 mt-2">Welcome back!</p>
+        </div>
 
-          {/* Title */}
-          <h2 className="text-2xl sm:text-3xl font-bold text-center mb-2" style={{
-            color: darkMode ? '#ececf1' : '#1f2937'
-          }}>
-            Welcome Back!
-          </h2>
-          <p className="text-center mb-8 text-sm sm:text-base" style={{
-            color: darkMode ? '#c5c5d2' : '#6b7280'
-          }}>
-            Login to continue your English learning journey
-          </p>
-
-          {/* Error Message */}
+        <div className="bg-white rounded-2xl shadow-2xl p-8">
           {error && (
-            <div className="mb-6 p-4 bg-red-100 border-l-4 border-red-500 rounded-lg">
-              <p className="text-red-700 text-sm">{error}</p>
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+              <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={18} />
+              <p className="text-sm text-red-700">{error}</p>
             </div>
           )}
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Email Input */}
             <div>
-              <label className="block text-sm font-semibold mb-2" style={{
-                color: darkMode ? '#ececf1' : '#374151'
-              }}>
-                Email Address
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                <Mail size={16} className="inline mr-1" />
+                Email
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Mail size={20} style={{ color: darkMode ? '#9ca3af' : '#6b7280' }} />
-                </div>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-12 pr-4 py-3 sm:py-3.5 rounded-xl border-2 text-base sm:text-lg font-medium transition-all focus:outline-none focus:ring-4"
-                  style={{
-                    background: darkMode ? '#40414f' : '#f9fafb',
-                    borderColor: darkMode ? '#565869' : '#e5e7eb',
-                    color: darkMode ? '#ececf1' : '#1f2937'
-                  }}
-                  placeholder="your@email.com"
-                  required
-                />
-              </div>
+              <input
+                type="email"
+                name="email"
+                value={formData.email}
+                onChange={handleChange}
+                className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none transition-colors ${
+                  validationErrors.email 
+                    ? 'border-red-300 focus:border-red-500 bg-red-50' 
+                    : 'border-gray-200 focus:border-purple-500'
+                }`}
+                placeholder="you@example.com"
+              />
+              {validationErrors.email && (
+                <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
+                  <AlertCircle size={14} />
+                  {validationErrors.email}
+                </p>
+              )}
             </div>
 
-            {/* Password Input */}
             <div>
-              <label className="block text-sm font-semibold mb-2" style={{
-                color: darkMode ? '#ececf1' : '#374151'
-              }}>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                <Lock size={16} className="inline mr-1" />
                 Password
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <Lock size={20} style={{ color: darkMode ? '#9ca3af' : '#6b7280' }} />
-                </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-12 pr-12 py-3 sm:py-3.5 rounded-xl border-2 text-base sm:text-lg font-medium transition-all focus:outline-none focus:ring-4"
-                  style={{
-                    background: darkMode ? '#40414f' : '#f9fafb',
-                    borderColor: darkMode ? '#565869' : '#e5e7eb',
-                    color: darkMode ? '#ececf1' : '#1f2937'
-                  }}
-                  placeholder="••••••••"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-4 flex items-center"
-                >
-                  {showPassword ? (
-                    <EyeOff size={20} style={{ color: darkMode ? '#9ca3af' : '#6b7280' }} />
-                  ) : (
-                    <Eye size={20} style={{ color: darkMode ? '#9ca3af' : '#6b7280' }} />
-                  )}
-                </button>
-              </div>
+              <input
+                type="password"
+                name="password"
+                value={formData.password}
+                onChange={handleChange}
+                className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none transition-colors ${
+                  validationErrors.password 
+                    ? 'border-red-300 focus:border-red-500 bg-red-50' 
+                    : 'border-gray-200 focus:border-purple-500'
+                }`}
+                placeholder="••••••"
+              />
+              {validationErrors.password && (
+                <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
+                  <AlertCircle size={14} />
+                  {validationErrors.password}
+                </p>
+              )}
             </div>
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 sm:py-4 rounded-xl text-white text-base sm:text-lg font-bold transition-all hover:shadow-lg hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-              }}
+              className="w-full py-3 px-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold rounded-lg hover:from-purple-700 hover:to-indigo-700 transition-all disabled:opacity-50"
             >
-              {loading ? 'Logging in...' : 'Login'}
+              {loading ? 'Logging in...' : 'Log In'}
             </button>
           </form>
 
-          {/* Sign Up Link */}
-          <p className="mt-6 text-center text-sm sm:text-base" style={{
-            color: darkMode ? '#c5c5d2' : '#6b7280'
-          }}>
+          <p className="mt-6 text-center text-sm text-gray-600">
             Don't have an account?{' '}
-            <Link 
-              to="/signup" 
-              className="font-bold hover:underline"
-              style={{ color: '#667eea' }}
-            >
-              Sign up
+            <Link to="/signup" className="text-purple-600 font-semibold hover:underline">
+              Sign Up
             </Link>
           </p>
         </div>

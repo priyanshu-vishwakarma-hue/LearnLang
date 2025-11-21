@@ -6,7 +6,7 @@ import User from '../models/User.js';
 
 const router = express.Router();
 
-// SIGNUP
+// SIGNUP - with detailed logging
 router.post(
   '/signup',
   [
@@ -25,26 +25,26 @@ router.post(
       .withMessage('Invalid proficiency level')
   ],
   async (req, res) => {
-    try {
-      console.log('📝 Signup request received:', {
-        name: req.body.name,
-        email: req.body.email,
-        proficiencyLevel: req.body.proficiencyLevel
+    console.log('📝 Signup request received:', {
+      name: req.body.name,
+      email: req.body.email,
+      proficiencyLevel: req.body.proficiencyLevel
+    });
+    
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      console.log('❌ Validation errors:', errors.array());
+      return res.status(400).json({ 
+        message: 'Validation failed',
+        errors: errors.array().map(err => ({
+          field: err.path,
+          message: err.msg
+        }))
       });
+    }
 
-      // Check validation errors
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        console.log('❌ Validation errors:', errors.array());
-        return res.status(400).json({ 
-          message: 'Validation failed',
-          errors: errors.array().map(err => ({
-            field: err.path,
-            message: err.msg
-          }))
-        });
-      }
-
+    try {
       const { name, email, password, proficiencyLevel } = req.body;
 
       // Check if user already exists

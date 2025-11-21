@@ -4,7 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { BookOpen, Mail, Lock, AlertCircle } from 'lucide-react';
 
 const Login = () => {
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [validationErrors, setValidationErrors] = useState({});
   const [loading, setLoading] = useState(false);
@@ -14,7 +15,12 @@ const Login = () => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    
+    if (name === 'email') {
+      setEmail(value);
+    } else if (name === 'password') {
+      setPassword(value);
+    }
     
     // Clear errors when typing
     if (validationErrors[name]) {
@@ -30,15 +36,15 @@ const Login = () => {
   const validateForm = () => {
     const errors = {};
     
-    if (!formData.email) {
+    if (!email) {
       errors.email = 'Email is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       errors.email = 'Please enter a valid email';
     }
     
-    if (!formData.password) {
+    if (!password) {
       errors.password = 'Password is required';
-    } else if (formData.password.length < 6) {
+    } else if (password.length < 6) {
       errors.password = 'Password must be at least 6 characters';
     }
     
@@ -59,8 +65,16 @@ const Login = () => {
     setValidationErrors({});
 
     try {
-      await login(formData);
-      navigate('/dashboard');
+      console.log('🔐 Login attempt:', { email, password: '***' });
+
+      // FIX: Pass email and password as strings, not objects
+      const result = await login(email, password);
+
+      if (result.success) {
+        navigate('/dashboard');
+      } else {
+        setError(result.message || 'Login failed');
+      }
     } catch (err) {
       console.error('Login error:', err);
       
@@ -108,7 +122,7 @@ const Login = () => {
               <input
                 type="email"
                 name="email"
-                value={formData.email}
+                value={email}
                 onChange={handleChange}
                 className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none transition-colors ${
                   validationErrors.email 
@@ -133,7 +147,7 @@ const Login = () => {
               <input
                 type="password"
                 name="password"
-                value={formData.password}
+                value={password}
                 onChange={handleChange}
                 className={`w-full px-4 py-3 border-2 rounded-lg focus:outline-none transition-colors ${
                   validationErrors.password 

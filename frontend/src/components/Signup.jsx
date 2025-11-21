@@ -74,38 +74,23 @@ const Signup = () => {
     setError('');
     setValidationErrors({});
 
-    try {
-      // Send formData directly - don't destructure
-      console.log('📤 Sending signup data:', formData);
-      await signup(formData);
+    console.log('📤 Sending signup data:', formData);
+
+    // FIX: Pass individual values, not the formData object
+    const result = await signup(
+      formData.email,
+      formData.password,
+      formData.name,
+      formData.proficiencyLevel
+    );
+
+    if (result.success) {
       navigate('/dashboard');
-    } catch (err) {
-      console.error('Signup error:', err);
-      
-      // Handle backend validation errors
-      if (err.data?.errors && Array.isArray(err.data.errors)) {
-        const backendErrors = {};
-        err.data.errors.forEach(error => {
-          if (error.path) {
-            backendErrors[error.path] = error.msg;
-          }
-        });
-        
-        console.log('Backend validation errors:', backendErrors);
-        
-        if (Object.keys(backendErrors).length > 0) {
-          setValidationErrors(backendErrors);
-        } else {
-          setError(err.data?.message || 'Signup failed. Please try again.');
-        }
-      } else if (err.data?.message) {
-        setError(err.data.message);
-      } else {
-        setError('Signup failed. Please try again.');
-      }
-    } finally {
-      setLoading(false);
+    } else {
+      setError(result.message || 'Signup failed');
     }
+
+    setLoading(false);
   };
 
   return (

@@ -35,49 +35,70 @@ export const AuthProvider = ({ children }) => {
     verifyToken();
   }, []);
 
-  const signup = async (userData) => {
-    console.log('Attempting signup to:', `${API_URL}/auth/signup`);
-    console.log('Signup data:', userData);
-    
+  const signup = async (email, password, name, proficiencyLevel) => {
     try {
-      const response = await axios.post(`${API_URL}/auth/signup`, userData);
+      console.log('📤 Signup request:', { email, password: '***', name, proficiencyLevel });
       
-      console.log('✅ Signup successful');
+      const response = await axios.post(`${API_URL}/auth/signup`, {
+        email: email,
+        password: password,
+        name: name,
+        proficiencyLevel: proficiencyLevel || 'beginner'
+      });
+
+      console.log('✅ Signup successful:', response.data);
       
-      const { token, user: userInfo } = response.data;
-      localStorage.setItem('token', token);
-      setUser(userInfo);
+      localStorage.setItem('token', response.data.token);
+      setUser(response.data.user);
+      return { success: true };
     } catch (error) {
-      console.error('Signup error:', error);
-      
-      if (error.response?.data) {
-        throw error.response;
-      }
-      
-      throw new Error('Signup failed. Please try again.');
+      console.error('❌ Signup error:', error.response?.data);
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Signup failed'
+      };
     }
   };
 
-  const login = async (credentials) => {
-    console.log('Attempting login to:', `${API_URL}/auth/login`);
-    
+  const login = async (email, password) => {
     try {
-      const response = await axios.post(`${API_URL}/auth/login`, credentials);
+      console.log('🔐 Attempting login with:', { 
+        email: typeof email === 'string' ? email : 'ERROR: Not a string!', 
+        password: typeof password === 'string' ? '***' : 'ERROR: Not a string!',
+        apiUrl: API_URL 
+      });
       
-      console.log('✅ Login successful');
-      
-      const { token, user: userInfo } = response.data;
-      localStorage.setItem('token', token);
-      setUser(userInfo);
-    } catch (error) {
-      console.error('Login error:', error);
-      
-      if (error.response?.data) {
-        throw error.response;
+      // Ensure email and password are strings
+      if (typeof email !== 'string' || typeof password !== 'string') {
+        console.error('❌ Email or password is not a string!', { email, password });
+        return { 
+          success: false, 
+          message: 'Invalid email or password format' 
+        };
       }
       
-      throw new Error('Login failed. Please check your credentials.');
+      const response = await axios.post(`${API_URL}/auth/login`, {
+        email: email.trim(),
+        password: password.trim()
+      });
+
+      console.log('✅ Login response:', response.data);
+      
+      localStorage.setItem('token', response.data.token);
+      setUser(response.data.user);
+      return { success: true };
+    } catch (error) {
+      console.error('❌ Login error:', error.response?.data || error.message);
+      return { 
+        success: false, 
+        message: error.response?.data?.message || error.response?.data?.errors?.[0]?.msg || 'Login failed. Please check your credentials.' 
+      };
     }
+  };
+
+  const updateUser = (updatedUserData) => {
+    setUser(updatedUserData);
+    console.log('✅ User updated in context:', updatedUserData);
   };
 
   const logout = () => {
@@ -86,7 +107,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signup, login, logout }}>
+    <AuthContext.Provider value={{ user, login, signup, logout, loading, updateUser }}>
       {children}
     </AuthContext.Provider>
   );
@@ -95,7 +116,7 @@ export const AuthProvider = ({ children }) => {
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error('useAuth must be used within AuthProvider');
   }
   return context;
 };

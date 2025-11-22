@@ -49,11 +49,12 @@ const Chat = () => {
   const isProcessingRef = useRef(false);
   const isSpeakingRef = useRef(false);
   const shouldRestartRef = useRef(false);
-  const isStartingRef = useRef(false); // NEW: Prevent duplicate start calls
-
-  const noSpeechWindowTimerRef = useRef(null);   // 4-second window after AI (auto mode only)
-  const speechSilenceTimerRef = useRef(null);    // 1-second silence after user speaking
+  const isStartingRef = useRef(false);
+  const noSpeechWindowTimerRef = useRef(null);
+  const speechSilenceTimerRef = useRef(null);
   const lastSavedTranscriptRef = useRef(null);
+  const lastProcessedTextRef = useRef(''); // NEW: Prevent duplicate processing
+  const processingLockRef = useRef(false); // NEW: Lock during processing
 
   // Apply dark mode
   useEffect(() => {
@@ -141,21 +142,28 @@ const Chat = () => {
     }
 
     recognitionRef.current = new SpeechRecognition();
+    
     recognitionRef.current.continuous = true;
     recognitionRef.current.interimResults = true;
     recognitionRef.current.maxAlternatives = 1;
+    
     recognitionRef.current.onstart = () => {
       console.log('🎤 Recognition started');
       setIsListening(true);
       setPermissionError('');
-      isStartingRef.current = false; // Clear starting flag
+      isStartingRef.current = false;
     };
 
     recognitionRef.current.onresult = (event) => {
+      // MOBILE FIX: Ignore if already processing
+      if (processingLockRef.current) {
+        console.log('🔒 Processing locked - ignoring onresult');
+        return;
+      }
+
       let interimTranscript = "";
       let finalTranscript = "";
 
-      // Build transcripts
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
 
@@ -167,83 +175,82 @@ const Chat = () => {
         }
       }
 
-      // Update transcript buffer
       currentTranscriptRef.current = (currentTranscriptRef.current + finalTranscript).trim();
       const displayText = (currentTranscriptRef.current + ' ' + interimTranscript).trim();
       setLiveTranscript(displayText);
 
       console.log('📝 Live:', displayText);
 
-      // If the user has started speaking, reset the 1-second silence timer
       if (hasSpokenRef.current) {
         if (speechSilenceTimerRef.current) {
           clearTimeout(speechSilenceTimerRef.current);
         }
 
-        // Cancel no-speech 4s window if running (auto mode)
         if (noSpeechWindowTimerRef.current) {
           clearTimeout(noSpeechWindowTimerRef.current);
           noSpeechWindowTimerRef.current = null;
         }
 
-        // Start 1-second silence timer — after 1s of silence, process user's speech
+        // MOBILE FIX: Increased to 2 seconds for better stability
         speechSilenceTimerRef.current = setTimeout(() => {
-          // Double-check that AI is not speaking and we're not already processing
-          if (isSpeakingRef.current || isProcessingRef.current) {
-            console.log('⏭️ Skipping processing - busy');
+          if (isSpeakingRef.current || processingLockRef.current) {
+            console.log('⏭️ Skip - busy or locked');
             return;
           }
 
           const textToSend = currentTranscriptRef.current.trim();
-          if (textToSend.length === 0) {
-            console.log('⚠️ Detected empty transcript after user speech - restarting listening');
-            // clear and restart listening (no processing of empty)
+          
+          // MOBILE FIX: Prevent duplicate processing
+          if (textToSend.length === 0 || textToSend === lastProcessedTextRef.current) {
+            console.log('⏭️ Skip - empty or duplicate text');
             currentTranscriptRef.current = '';
             hasSpokenRef.current = false;
-            startListening();
             return;
           }
 
-          console.log('🔇 1s silence — processing user speech:', textToSend);
-          // prepare and send
+          console.log('🔇 2s silence — processing:', textToSend);
+          
+          // LOCK processing
+          processingLockRef.current = true;
+          lastProcessedTextRef.current = textToSend;
+          
           currentTranscriptRef.current = '';
           hasSpokenRef.current = false;
           isProcessingRef.current = true;
           setLiveTranscript('');
+          
           sendMessage(textToSend);
-        }, 2000);
+        }, 2000); // Increased from 1000ms to 2000ms for mobile stability
       }
     };
-
 
     recognitionRef.current.onerror = (event) => {
       console.error('❌ Speech error:', event.error);
       setIsListening(false);
       setLiveTranscript('');
       isStartingRef.current = false;
+      processingLockRef.current = false; // UNLOCK on error
 
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
-      }
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (speechSilenceTimerRef.current) clearTimeout(speechSilenceTimerRef.current);
 
       if (event.error === 'not-allowed') {
         setPermissionError('🎤 Microphone permission denied.');
-        // Do not auto-restart on permission error
         shouldRestartRef.current = false;
         return;
       }
 
-      // Do not auto-restart from onerror to avoid loops; allow user or speakText.onend to restart.
       console.log('⛔ Recognition error - restart skipped');
     };
 
-    // REPLACE onend with a no-restart handler (control restart after AI)
     recognitionRef.current.onend = () => {
       console.log('🛑 Recognition ended');
       setIsListening(false);
       isStartingRef.current = false;
+      
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      // Do NOT restart here. Restart only after AI speaking end.
+      if (speechSilenceTimerRef.current) clearTimeout(speechSilenceTimerRef.current);
+      
       console.log('⛔ Restart skipped (only done after AI speaks)');
     };
 
@@ -380,7 +387,6 @@ const Chat = () => {
       utterance.volume = 1.0;
 
       utterance.onstart = () => {
-         // STOP LISTENING WHILE AI SPEAKS
         if (recognitionRef.current) {
           try {
             recognitionRef.current.stop();
@@ -396,27 +402,20 @@ const Chat = () => {
         console.log('🔊 AI Speech started');
         setIsSpeaking(true);
         isSpeakingRef.current = true;
-        // block restarting while AI speaks
         shouldRestartRef.current = false;
       };
 
       utterance.onend = () => {
         console.log("💬 AI Speech ended");
 
-        // RESET flags completely
         isSpeakingRef.current = false;
         setIsSpeaking(false);
-
-        // Allow processing again
         isProcessingRef.current = false;
         hasSpokenRef.current = false;
-
-        // Reset transcript buffer
         currentTranscriptRef.current = "";
+        processingLockRef.current = false; // UNLOCK after AI speaks
+        lastProcessedTextRef.current = ''; // RESET last processed
 
-        // Restart listening only when:
-        // - autoMode is ON
-        // - pause is OFF
         setTimeout(() => {
           if (!autoModeRef.current || isPausedRef.current) {
             console.log("⏸️ Not restarting: autoMode off or paused");
@@ -426,7 +425,6 @@ const Chat = () => {
           console.log("🎤 Restarting mic after AI speech");
           startListening();
 
-          // Start 4-second idling window
           if (noSpeechWindowTimerRef.current) clearTimeout(noSpeechWindowTimerRef.current);
 
           noSpeechWindowTimerRef.current = setTimeout(() => {
@@ -442,16 +440,12 @@ const Chat = () => {
         }, 300);
       };
 
-
       utterance.onerror = (err) => {
         console.error("❌ Speech error:", err);
-
         setIsSpeaking(false);
         isSpeakingRef.current = false;
-
-        // ALWAYS allow restart even if speech synthesis fails
+        processingLockRef.current = false; // UNLOCK on error
         shouldRestartRef.current = true;
-
         resolve();
       };
 
@@ -488,6 +482,7 @@ const sendMessage = async (messageText = inputText) => {
     if (!textToSend.trim()) {
       console.log('⚠️ Empty message');
       isProcessingRef.current = false;
+      processingLockRef.current = false; // UNLOCK
       shouldRestartRef.current = true;
       if (autoModeRef.current && !isPausedRef.current) {
         setTimeout(() => startListening(), 300);
@@ -507,7 +502,6 @@ const sendMessage = async (messageText = inputText) => {
     setInputText('');
     setLoading(true);
 
-    // Stop listening before sending
     if (recognitionRef.current && isListening) {
       try {
         recognitionRef.current.stop();
@@ -544,7 +538,6 @@ const sendMessage = async (messageText = inputText) => {
         setMessages(prev => [...prev, aiMessage]);
       }
 
-      // Speak AI response (speakText handles restarting)
       const speechLang = aiResponseLanguageRef.current === 'hi' ? 'hi-IN' : 'en-US';
       console.log('🔊 AI speaking...');
       await speakText(response.data.aiResponse, speechLang);
@@ -554,11 +547,11 @@ const sendMessage = async (messageText = inputText) => {
       console.error('❌ Error:', error);
       setMessages(prev => prev.filter(msg => msg.content !== textToSend));
       showToast('Failed to send message', 'error');
+      processingLockRef.current = false; // UNLOCK on error
       shouldRestartRef.current = true;
     } finally {
       setLoading(false);
       isProcessingRef.current = false;
-      // Do NOT restart here — speakText.onend already handles restart
     }
   };
 
@@ -674,6 +667,8 @@ const sendMessage = async (messageText = inputText) => {
       isSpeakingRef.current = false;
       shouldRestartRef.current = false;
       isStartingRef.current = false;
+      processingLockRef.current = false; // RESET lock
+      lastProcessedTextRef.current = ''; // RESET last processed
       showToast('Auto conversation mode activated! 🎙️', 'success');
       setTimeout(() => startListening(), 1000);
     } else {
@@ -683,7 +678,10 @@ const sendMessage = async (messageText = inputText) => {
       isSpeakingRef.current = false;
       shouldRestartRef.current = false;
       isStartingRef.current = false;
+      processingLockRef.current = false; // RESET lock
+      lastProcessedTextRef.current = ''; // RESET last processed
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      if (speechSilenceTimerRef.current) clearTimeout(speechSilenceTimerRef.current);
       recognitionRef.current?.stop();
       synthesisRef.current.cancel();
       showToast('Auto mode stopped', 'info');
@@ -795,19 +793,24 @@ const sendMessage = async (messageText = inputText) => {
 
 
   return (
-    <div className="flex flex-col mobile-vh-100" style={{
+    <div className="flex flex-col" style={{ 
       background: darkMode ? '#343541' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
       height: '100vh',
       height: 'calc(var(--vh, 1vh) * 100)',
       overflow: 'hidden',
-      position: 'relative'
+      position: 'fixed', // CHANGED: From relative to fixed
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0
     }}>
-      {/* Header - FIXED STICKY */}
-      <div className="sticky top-0 z-50 border-b px-3 sm:px-4 md:px-6 py-3 md:py-4" style={{
+      {/* Header - TRULY FIXED */}
+      <div className="flex-shrink-0 border-b px-3 sm:px-4 md:px-6 py-3 md:py-4" style={{
         background: darkMode ? '#2c2d37' : '#ffffff',
         borderColor: darkMode ? '#444654' : '#e5e7eb',
         position: 'sticky',
-        top: 0
+        top: 0,
+        zIndex: 50
       }}>
         <div className="flex items-center justify-between gap-2">
           {/* Left Section */}
@@ -1062,7 +1065,7 @@ const sendMessage = async (messageText = inputText) => {
               </div>
               <button 
                 onClick={() => setShowLiveTranscript(false)}
-                className="flex-shrink-0 p-1 rounded hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition-colors"
+                className="flex-shrink-0 p-1 rounded hover:bg-gray-200/50 dark:hover:bg-white/10 transition-colors"
                 style={{ color: darkMode ? '#9ca3af' : '#6b7280' }}
                 title="Hide (can show again from settings)"
               >
@@ -1078,14 +1081,13 @@ const sendMessage = async (messageText = inputText) => {
         </div>
       )}
 
-      {/* Messages - NO extra padding needed now */}
+      {/* Messages - SCROLLABLE CONTAINER */}
       <div 
-        className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6" 
+        className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6" 
         style={{ 
           WebkitOverflowScrolling: 'touch',
-          overflowY: 'auto',
+          overscrollBehavior: 'contain', // PREVENTS parent scroll
           position: 'relative',
-          minHeight: 0,
           paddingBottom: autoMode ? '140px' : '120px'
         }}
       >
@@ -1228,17 +1230,15 @@ const sendMessage = async (messageText = inputText) => {
         </div>
       )}
 
-      {/* Input Area - IMPROVED live transcript positioning */}
+      {/* Input Area - FIXED at bottom */}
       {!autoMode && (
         <div 
-          className="sticky-bottom safe-bottom"
+          className="flex-shrink-0"
           style={{ 
             background: darkMode ? '#2c2d37' : '#ffffff',
             borderTop: `1px solid ${darkMode ? '#444654' : '#e5e7eb'}`,
-            position: 'fixed',
+            position: 'sticky',
             bottom: 0,
-            left: 0,
-            right: 0,
             zIndex: 200,
             paddingLeft: '12px',
             paddingRight: '12px',
@@ -1314,17 +1314,15 @@ const sendMessage = async (messageText = inputText) => {
         </div>
       )}
 
-      {/* Auto Mode Controls - IMPROVED with show transcript button */}
+      {/* Auto Mode Controls - FIXED at bottom */}
       {autoMode && (
         <div 
-          className="sticky-bottom safe-bottom"
+          className="flex-shrink-0"
           style={{ 
             background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', 
             color: '#ffffff',
-            position: 'fixed',
+            position: 'sticky',
             bottom: 0,
-            left: 0,
-            right: 0,
             zIndex: 200,
             paddingLeft: '12px',
             paddingRight: '12px',

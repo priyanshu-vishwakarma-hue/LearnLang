@@ -32,10 +32,10 @@ const Chat = () => {
   const [permissionError, setPermissionError] = useState('');
   const [isMobile, setIsMobile] = useState(false);
   const [browserInfo, setBrowserInfo] = useState('');
-  const [liveTranscript, setLiveTranscript] = useState(''); // NEW: Show live transcript
-  const [showLiveTranscript, setShowLiveTranscript] = useState(true); // NEW: Toggle visibility
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const [showLiveTranscript, setShowLiveTranscript] = useState(true);
 
-  // MINIMAL refs
+  // Refs
   const messagesEndRef = useRef(null);
   const recognitionRef = useRef(null);
   const synthesisRef = useRef(window.speechSynthesis);
@@ -43,20 +43,19 @@ const Chat = () => {
   const isPausedRef = useRef(false);
   const userSpeakLanguageRef = useRef('en');
   const aiResponseLanguageRef = useRef('en');
-  const silenceTimerRef = useRef(null);
   const currentTranscriptRef = useRef('');
   const hasSpokenRef = useRef(false);
   const isProcessingRef = useRef(false);
   const isSpeakingRef = useRef(false);
-  const shouldRestartRef = useRef(false);
   const isStartingRef = useRef(false);
-  const noSpeechWindowTimerRef = useRef(null);
-  const speechSilenceTimerRef = useRef(null);
+  const lastProcessedTextRef = useRef('');
+  const lastFinalTranscriptRef = useRef('');
+  const processingLockRef = useRef(false);
+  const speechTimerRef = useRef(null);
+  const restartTimerRef = useRef(null);
   const lastSavedTranscriptRef = useRef(null);
-  const lastProcessedTextRef = useRef(''); // NEW: Prevent duplicate processing
-  const processingLockRef = useRef(false); // NEW: Lock during processing
 
-  // Apply dark mode
+  // Dark mode
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
     localStorage.setItem('darkMode', darkMode);
@@ -66,9 +65,11 @@ const Chat = () => {
     fetchConversation();
     initializeSpeechRecognition();
     return () => {
-      if (recognitionRef.current) recognitionRef.current.stop();
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch {}
+      }
       synthesisRef.current.cancel();
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      clearAllTimers();
     };
   }, []);
 
@@ -77,7 +78,7 @@ const Chat = () => {
   useEffect(() => { userSpeakLanguageRef.current = userSpeakLanguage; }, [userSpeakLanguage]);
   useEffect(() => { aiResponseLanguageRef.current = aiResponseLanguage; }, [aiResponseLanguage]);
 
-  // Detect mobile and browser
+  // Detect mobile
   useEffect(() => {
     const mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     setIsMobile(mobile);
@@ -92,14 +93,10 @@ const Chat = () => {
       isFirefox ? 'Firefox' : 'Unknown'
     );
 
-    console.log('📱 Device Info:', {
-      isMobile: mobile,
-      browser: browserInfo,
-      userAgent: navigator.userAgent
-    });
+    console.log('📱 Device:', { isMobile: mobile, browser: browserInfo });
   }, []);
 
-  // Mobile viewport height fix
+  // Mobile viewport fix
   useEffect(() => {
     const setVH = () => {
       const vh = window.innerHeight * 0.01;
@@ -114,10 +111,21 @@ const Chat = () => {
     };
   }, []);
 
+  // Listen for dark mode changes
+  useEffect(() => {
+    const handleDarkModeChange = (e) => setDarkMode(e.detail);
+    window.addEventListener('darkModeChange', handleDarkModeChange);
+    return () => window.removeEventListener('darkModeChange', handleDarkModeChange);
+  }, []);
+
+  const clearAllTimers = () => {
+    if (speechTimerRef.current) clearTimeout(speechTimerRef.current);
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+  };
+
   const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 
   const initializeSpeechRecognition = () => {
-    // Check if running on HTTPS or localhost
     const isSecure = window.location.protocol === 'https:' ||
       window.location.hostname === 'localhost' ||
       window.location.hostname === '127.0.0.1';
@@ -129,7 +137,6 @@ const Chat = () => {
       return;
     }
 
-    // Check for speech recognition support
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       const errorMsg = isMobile
@@ -142,85 +149,85 @@ const Chat = () => {
     }
 
     recognitionRef.current = new SpeechRecognition();
-    
     recognitionRef.current.continuous = true;
     recognitionRef.current.interimResults = true;
     recognitionRef.current.maxAlternatives = 1;
-    
+
     recognitionRef.current.onstart = () => {
       console.log('🎤 Recognition started');
       setIsListening(true);
       setPermissionError('');
       isStartingRef.current = false;
+      lastFinalTranscriptRef.current = '';
     };
 
     recognitionRef.current.onresult = (event) => {
-      // MOBILE FIX: Ignore if already processing
       if (processingLockRef.current) {
-        console.log('🔒 Processing locked - ignoring onresult');
+        console.log('🔒 Locked - ignoring');
         return;
       }
 
-      let interimTranscript = "";
-      let finalTranscript = "";
+      let interimTranscript = '';
+      let finalTranscript = '';
+      let hasNewFinal = false;
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
 
         if (event.results[i].isFinal) {
-          finalTranscript += transcript + " ";
-          hasSpokenRef.current = true;
+          if (transcript !== lastFinalTranscriptRef.current) {
+            finalTranscript += transcript + ' ';
+            lastFinalTranscriptRef.current = transcript;
+            hasNewFinal = true;
+            hasSpokenRef.current = true;
+          }
         } else {
           interimTranscript += transcript;
         }
       }
 
-      currentTranscriptRef.current = (currentTranscriptRef.current + finalTranscript).trim();
+      if (hasNewFinal) {
+        currentTranscriptRef.current = (currentTranscriptRef.current + finalTranscript).trim();
+      }
+
       const displayText = (currentTranscriptRef.current + ' ' + interimTranscript).trim();
       setLiveTranscript(displayText);
 
-      console.log('📝 Live:', displayText);
+      if (hasSpokenRef.current && hasNewFinal) {
+        if (speechTimerRef.current) clearTimeout(speechTimerRef.current);
 
-      if (hasSpokenRef.current) {
-        if (speechSilenceTimerRef.current) {
-          clearTimeout(speechSilenceTimerRef.current);
-        }
+        // MOBILE: 2.5 seconds for stability
+        const silenceTime = isMobile ? 2500 : 2000;
 
-        if (noSpeechWindowTimerRef.current) {
-          clearTimeout(noSpeechWindowTimerRef.current);
-          noSpeechWindowTimerRef.current = null;
-        }
-
-        // MOBILE FIX: Increased to 2 seconds for better stability
-        speechSilenceTimerRef.current = setTimeout(() => {
+        speechTimerRef.current = setTimeout(() => {
           if (isSpeakingRef.current || processingLockRef.current) {
-            console.log('⏭️ Skip - busy or locked');
+            console.log('⏭️ Skip - busy');
             return;
           }
 
           const textToSend = currentTranscriptRef.current.trim();
-          
-          // MOBILE FIX: Prevent duplicate processing
-          if (textToSend.length === 0 || textToSend === lastProcessedTextRef.current) {
-            console.log('⏭️ Skip - empty or duplicate text');
+
+          if (!textToSend || textToSend === lastProcessedTextRef.current || 
+              lastProcessedTextRef.current.includes(textToSend)) {
+            console.log('⏭️ Skip - duplicate');
             currentTranscriptRef.current = '';
             hasSpokenRef.current = false;
+            lastFinalTranscriptRef.current = '';
             return;
           }
 
-          console.log('🔇 2s silence — processing:', textToSend);
-          
-          // LOCK processing
+          console.log('🔇 Silence - processing:', textToSend);
+
           processingLockRef.current = true;
           lastProcessedTextRef.current = textToSend;
-          
           currentTranscriptRef.current = '';
           hasSpokenRef.current = false;
+          lastFinalTranscriptRef.current = '';
           isProcessingRef.current = true;
           setLiveTranscript('');
-          
+
           sendMessage(textToSend);
-        }, 2000); // Increased from 1000ms to 2000ms for mobile stability
+        }, silenceTime);
       }
     };
 
@@ -229,154 +236,122 @@ const Chat = () => {
       setIsListening(false);
       setLiveTranscript('');
       isStartingRef.current = false;
-      processingLockRef.current = false; // UNLOCK on error
-
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      if (speechSilenceTimerRef.current) clearTimeout(speechSilenceTimerRef.current);
+      processingLockRef.current = false;
+      lastFinalTranscriptRef.current = '';
+      clearAllTimers();
 
       if (event.error === 'not-allowed') {
         setPermissionError('🎤 Microphone permission denied.');
-        shouldRestartRef.current = false;
         return;
       }
 
-      console.log('⛔ Recognition error - restart skipped');
+      // MOBILE: Auto-restart on error
+      if (autoModeRef.current && !isPausedRef.current && event.error !== 'aborted') {
+        console.log('🔄 Auto-restart after error');
+        setTimeout(() => safeStartListening(), 1500);
+      }
     };
 
     recognitionRef.current.onend = () => {
       console.log('🛑 Recognition ended');
       setIsListening(false);
       isStartingRef.current = false;
-      
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      if (speechSilenceTimerRef.current) clearTimeout(speechSilenceTimerRef.current);
-      
-      console.log('⛔ Restart skipped (only done after AI speaks)');
+      clearAllTimers();
+
+      // MOBILE: Only restart if in auto mode
+      if (autoModeRef.current && !isPausedRef.current && !isSpeakingRef.current) {
+        console.log('🔄 Restart from onend');
+        setTimeout(() => safeStartListening(), 500);
+      }
     };
 
     console.log('✅ Speech recognition initialized');
   };
-  const fetchConversation = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/conversation`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setMessages(response.data.conversation.messages || []);
-    } catch (error) {
-      console.error('Error fetching conversation:', error);
-    }
-  };
 
-  const fetchSavedStatus = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/saved/all`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      const savedMap = {};
-      response.data.savedMessages.forEach(msg => {
-        savedMap[msg.aiResponse] = msg._id;
-      });
-      setSavedMessageMap(savedMap);
-    } catch (error) {
-      console.error('Error fetching saved status:', error);
-    }
-  };
-
-  const startListening = async () => {
+  const safeStartListening = async () => {
     if (!recognitionRef.current) {
-      console.error("❌ Speech recognition not initialized");
+      console.error('❌ Recognition not initialized');
       return;
     }
 
     if (isSpeakingRef.current) {
-      console.log("⛔ Blocked start — AI is speaking");
+      console.log('⛔ AI speaking - skip');
       return;
     }
 
-    // PREVENT multiple starts
     if (isStartingRef.current || isListening) {
-      console.log("⏭️ Skipping start — already starting or listening");
+      console.log('⏭️ Already starting/listening');
       return;
     }
 
-    // CLEAR old silence timer (IMPORTANT)
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-
+    clearAllTimers();
     isStartingRef.current = true;
 
     try {
-      // Request microphone permission
+      // Request mic permission
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
           stream.getTracks().forEach(track => track.stop());
-          setPermissionError("");
+          setPermissionError('');
         } catch (permError) {
-          console.error("❌ Microphone permission denied");
-          setPermissionError("🎤 Microphone access denied. Please allow microphone.");
+          console.error('❌ Mic permission denied');
+          setPermissionError('🎤 Microphone access denied. Please allow microphone.');
           isStartingRef.current = false;
           return;
         }
       }
 
-      recognitionRef.current.lang =
-        userSpeakLanguageRef.current === "hi" ? "hi-IN" : "en-US";
+      recognitionRef.current.lang = userSpeakLanguageRef.current === 'hi' ? 'hi-IN' : 'en-US';
 
-      // LITTLE DELAY avoids InvalidStateError (CORE FIX)
+      // MOBILE: Delay to avoid InvalidStateError
       setTimeout(() => {
+        if (!isStartingRef.current) return;
+
         try {
           recognitionRef.current.start();
-          console.log("🎤 Listening started safely");
+          console.log('🎤 Listening started');
         } catch (err) {
-          console.warn("⚠️ Start failed, retrying...", err);
+          console.warn('⚠️ Start failed, retry...', err);
           isStartingRef.current = false;
-
-          // Retry after 150ms if recognizer was still stopping
-          setTimeout(startListening, 150);
+          setTimeout(() => safeStartListening(), 200);
         }
-      }, 120); // delay ensures recognizer is fully stopped
+      }, 150);
 
     } catch (error) {
-      console.error("❌ Error starting recognition:", error);
+      console.error('❌ Error:', error);
       setIsListening(false);
       isStartingRef.current = false;
 
-      // Auto-retry on invalid state
-      if (error.name === "InvalidStateError") {
-        console.log("⚠️ InvalidState → retrying...");
+      if (error.name === 'InvalidStateError') {
+        console.log('⚠️ InvalidState - retry');
         try {
           recognitionRef.current?.stop();
         } catch {}
-        setTimeout(startListening, 300);
+        setTimeout(() => safeStartListening(), 500);
       }
     }
   };
-
 
   const handleVoiceInput = () => {
-    console.log('🔘 Speak button clicked');
+    console.log('🔘 Mic button clicked');
 
     if (isListening) {
-      console.log('🛑 Stopping listening...');
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
-      }
+      console.log('🛑 Stopping...');
+      clearAllTimers();
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch {}
       }
     } else {
-      console.log('▶️ Starting listening...');
+      console.log('▶️ Starting...');
       currentTranscriptRef.current = '';
       hasSpokenRef.current = false;
-      startListening();
+      safeStartListening();
     }
   };
+
   const speakText = (text, language = 'en-US') => {
     return new Promise((resolve) => {
       synthesisRef.current.cancel();
@@ -390,62 +365,48 @@ const Chat = () => {
         if (recognitionRef.current) {
           try {
             recognitionRef.current.stop();
-            console.log("🛑 Mic stopped: AI is speaking");
-          } catch (e) {
-            console.warn("Mic stop failed:", e);
-          }
+            console.log('🛑 Mic stopped: AI speaking');
+          } catch {}
         }
-        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-        if (speechSilenceTimerRef.current) clearTimeout(speechSilenceTimerRef.current);
-        if (noSpeechWindowTimerRef.current) clearTimeout(noSpeechWindowTimerRef.current);
+        clearAllTimers();
         setIsListening(false);
         console.log('🔊 AI Speech started');
         setIsSpeaking(true);
         isSpeakingRef.current = true;
-        shouldRestartRef.current = false;
       };
 
       utterance.onend = () => {
-        console.log("💬 AI Speech ended");
+        console.log('💬 AI Speech ended');
 
         isSpeakingRef.current = false;
         setIsSpeaking(false);
         isProcessingRef.current = false;
         hasSpokenRef.current = false;
-        currentTranscriptRef.current = "";
-        processingLockRef.current = false; // UNLOCK after AI speaks
-        lastProcessedTextRef.current = ''; // RESET last processed
+        currentTranscriptRef.current = '';
+        processingLockRef.current = false;
+        lastProcessedTextRef.current = '';
+        lastFinalTranscriptRef.current = '';
 
+        // MOBILE: Delayed restart
         setTimeout(() => {
           if (!autoModeRef.current || isPausedRef.current) {
-            console.log("⏸️ Not restarting: autoMode off or paused");
+            console.log('⏸️ Not restarting');
+            resolve();
             return;
           }
 
-          console.log("🎤 Restarting mic after AI speech");
-          startListening();
-
-          if (noSpeechWindowTimerRef.current) clearTimeout(noSpeechWindowTimerRef.current);
-
-          noSpeechWindowTimerRef.current = setTimeout(() => {
-            if (!hasSpokenRef.current && !isSpeakingRef.current) {
-              console.log("⏳ No speech for 4 sec → restart listening");
-              try {
-                recognitionRef.current.stop();
-              } catch {}
-              setTimeout(startListening, 300);
-            }
-          }, 4000);
-
-        }, 300);
+          console.log('🎤 Restarting after AI');
+          safeStartListening();
+          resolve();
+        }, isMobile ? 500 : 300);
       };
 
       utterance.onerror = (err) => {
-        console.error("❌ Speech error:", err);
+        console.error('❌ Speech error:', err);
         setIsSpeaking(false);
         isSpeakingRef.current = false;
-        processingLockRef.current = false; // UNLOCK on error
-        shouldRestartRef.current = true;
+        processingLockRef.current = false;
+        lastFinalTranscriptRef.current = '';
         resolve();
       };
 
@@ -453,19 +414,16 @@ const Chat = () => {
     });
   };
 
-  
   const finishUserSpeech = () => {
-    // Called when user finishes speaking (1s silence)
-    if (isSpeakingRef.current) return; // don't process while AI is speaking
+    if (isSpeakingRef.current) return;
 
     const text = currentTranscriptRef.current.trim();
 
     if (text.length === 0) {
       console.log('⚠️ finishUserSpeech: empty transcript — restarting listening');
-      // restart listening (do not process empty)
       currentTranscriptRef.current = '';
       hasSpokenRef.current = false;
-      startListening();
+      safeStartListening();
       return;
     }
 
@@ -476,16 +434,16 @@ const Chat = () => {
     setLiveTranscript('');
     sendMessage(text);
   };
-const sendMessage = async (messageText = inputText) => {
+
+  const sendMessage = async (messageText = inputText) => {
     const textToSend = messageText || inputText;
 
     if (!textToSend.trim()) {
       console.log('⚠️ Empty message');
       isProcessingRef.current = false;
-      processingLockRef.current = false; // UNLOCK
-      shouldRestartRef.current = true;
+      processingLockRef.current = false;
       if (autoModeRef.current && !isPausedRef.current) {
-        setTimeout(() => startListening(), 300);
+        setTimeout(() => safeStartListening(), 300);
       }
       return;
     }
@@ -505,9 +463,7 @@ const sendMessage = async (messageText = inputText) => {
     if (recognitionRef.current && isListening) {
       try {
         recognitionRef.current.stop();
-      } catch (err) {
-        console.warn('Stop threw', err);
-      }
+      } catch {}
     }
 
     try {
@@ -541,14 +497,13 @@ const sendMessage = async (messageText = inputText) => {
       const speechLang = aiResponseLanguageRef.current === 'hi' ? 'hi-IN' : 'en-US';
       console.log('🔊 AI speaking...');
       await speakText(response.data.aiResponse, speechLang);
-      console.log('✅ AI finished speaking');
+      console.log('✅ AI finished');
 
     } catch (error) {
       console.error('❌ Error:', error);
       setMessages(prev => prev.filter(msg => msg.content !== textToSend));
       showToast('Failed to send message', 'error');
-      processingLockRef.current = false; // UNLOCK on error
-      shouldRestartRef.current = true;
+      processingLockRef.current = false;
     } finally {
       setLoading(false);
       isProcessingRef.current = false;
@@ -563,7 +518,6 @@ const sendMessage = async (messageText = inputText) => {
         { aiResponseLanguage },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
       setSuggestions(response.data.suggestions);
       setShowSuggestionModal(true);
     } catch (error) {
@@ -579,6 +533,7 @@ const sendMessage = async (messageText = inputText) => {
       setTimeout(() => sendMessage(suggestion), 500);
     }
   };
+
   const showToast = (message, type = 'success') => {
     const toastDiv = document.createElement('div');
     const bgColor = type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500';
@@ -596,7 +551,6 @@ const sendMessage = async (messageText = inputText) => {
 
   const saveMessage = async (userMsg, aiMsg) => {
     if (lastSavedTranscriptRef.current === aiMsg) {
-      console.log('⏭️ Already saved - skipping');
       showToast('Already saved!', 'info');
       return;
     }
@@ -605,23 +559,15 @@ const sendMessage = async (messageText = inputText) => {
       const token = localStorage.getItem('token');
       const response = await axios.post(
         `${API_URL}/saved/save`,
-        {
-          userMessage: userMsg,
-          aiResponse: aiMsg
-        },
+        { userMessage: userMsg, aiResponse: aiMsg },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       lastSavedTranscriptRef.current = aiMsg;
-
-      setSavedMessageMap(prev => ({
-        ...prev,
-        [aiMsg]: response.data.savedMessage._id
-      }));
-
+      setSavedMessageMap(prev => ({ ...prev, [aiMsg]: response.data.savedMessage._id }));
       showToast(`Saved to: ${response.data.folderName}`, 'success');
     } catch (error) {
-      console.error('Error saving message:', error);
+      console.error('Error saving:', error);
       if (error.response?.status === 400) {
         showToast('Already saved!', 'info');
       } else {
@@ -648,7 +594,7 @@ const sendMessage = async (messageText = inputText) => {
 
       showToast('Removed from saved', 'info');
     } catch (error) {
-      console.error('Error unsaving message:', error);
+      console.error('Error unsaving:', error);
       showToast('Failed to unsave', 'error');
     }
   };
@@ -665,24 +611,26 @@ const sendMessage = async (messageText = inputText) => {
       hasSpokenRef.current = false;
       isProcessingRef.current = false;
       isSpeakingRef.current = false;
-      shouldRestartRef.current = false;
       isStartingRef.current = false;
-      processingLockRef.current = false; // RESET lock
-      lastProcessedTextRef.current = ''; // RESET last processed
+      processingLockRef.current = false;
+      lastProcessedTextRef.current = '';
+      lastFinalTranscriptRef.current = '';
+      clearAllTimers();
       showToast('Auto conversation mode activated! 🎙️', 'success');
-      setTimeout(() => startListening(), 1000);
+      setTimeout(() => safeStartListening(), 1000);
     } else {
       setIsPaused(false);
       isPausedRef.current = false;
       isProcessingRef.current = false;
       isSpeakingRef.current = false;
-      shouldRestartRef.current = false;
       isStartingRef.current = false;
-      processingLockRef.current = false; // RESET lock
-      lastProcessedTextRef.current = ''; // RESET last processed
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      if (speechSilenceTimerRef.current) clearTimeout(speechSilenceTimerRef.current);
-      recognitionRef.current?.stop();
+      processingLockRef.current = false;
+      lastProcessedTextRef.current = '';
+      lastFinalTranscriptRef.current = '';
+      clearAllTimers();
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch {}
+      }
       synthesisRef.current.cancel();
       showToast('Auto mode stopped', 'info');
     }
@@ -694,18 +642,17 @@ const sendMessage = async (messageText = inputText) => {
     isPausedRef.current = newPaused;
 
     if (newPaused) {
-      shouldRestartRef.current = false;
-      isStartingRef.current = false;
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      recognitionRef.current?.stop();
+      clearAllTimers();
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch {}
+      }
       synthesisRef.current.cancel();
     } else {
       currentTranscriptRef.current = '';
       hasSpokenRef.current = false;
       isProcessingRef.current = false;
-      shouldRestartRef.current = true;
       isStartingRef.current = false;
-      setTimeout(() => startListening(), 500);
+      setTimeout(() => safeStartListening(), 500);
     }
   };
 
@@ -718,7 +665,7 @@ const sendMessage = async (messageText = inputText) => {
       setMessages([]);
       showToast('Conversation cleared', 'success');
     } catch (error) {
-      console.error('Error clearing conversation:', error);
+      console.error('Error clearing:', error);
       showToast('Failed to clear conversation', 'error');
     }
   };
@@ -730,34 +677,14 @@ const sendMessage = async (messageText = inputText) => {
     }
   };
 
-  const handleSpeechRateChange = (e) => {
-    const newRate = parseFloat(e.target.value);
-    console.log('🎚️ Changing speech rate to:', newRate);
-    setSpeechRate(newRate);
-  };
+  const handleSpeechRateChange = (e) => setSpeechRate(parseFloat(e.target.value));
+  const handleSpeechPitchChange = (e) => setSpeechPitch(parseFloat(e.target.value));
 
-  const handleSpeechPitchChange = (e) => {
-    const newPitch = parseFloat(e.target.value);
-    console.log('🎵 Changing speech pitch to:', newPitch);
-    setSpeechPitch(newPitch);
-  };
-
-  // Listen for dark mode changes from Navbar
-  useEffect(() => {
-    const handleDarkModeChange = (e) => {
-      setDarkMode(e.detail);
-    };
-    window.addEventListener('darkModeChange', handleDarkModeChange);
-    return () => window.removeEventListener('darkModeChange', handleDarkModeChange);
-  }, []);
-  // ADD: Delete message function with backend sync
   const deleteMessage = async (messageIndex) => {
     try {
-      // Remove from local state immediately
       const newMessages = messages.filter((_, index) => index !== messageIndex);
       setMessages(newMessages);
 
-      // Sync with backend
       const token = localStorage.getItem('token');
       await axios.put(
         `${API_URL}/conversation/update`,
@@ -767,30 +694,48 @@ const sendMessage = async (messageText = inputText) => {
 
       showToast('Message deleted', 'info');
     } catch (error) {
-      console.error('Error deleting message:', error);
+      console.error('Error deleting:', error);
       showToast('Failed to delete message', 'error');
-      // Revert on error
       fetchConversation();
     }
   };
-
 
   const toggleDarkMode = () => {
     const newMode = !darkMode;
     setDarkMode(newMode);
     localStorage.setItem('darkMode', newMode);
-
-    document.documentElement.setAttribute(
-      'data-theme',
-      newMode ? 'dark' : 'light'
-    );
-
-    // Notify other components (Navbar)
-    window.dispatchEvent(
-      new CustomEvent('darkModeChange', { detail: newMode })
-    );
+    document.documentElement.setAttribute('data-theme', newMode ? 'dark' : 'light');
+    window.dispatchEvent(new CustomEvent('darkModeChange', { detail: newMode }));
   };
 
+  const fetchConversation = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/conversation`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMessages(response.data.conversation.messages || []);
+    } catch (error) {
+      console.error('Error fetching conversation:', error);
+    }
+  };
+
+  const fetchSavedStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/saved/all`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const savedMap = {};
+      response.data.savedMessages.forEach(msg => {
+        savedMap[msg.aiResponse] = msg._id;
+      });
+      setSavedMessageMap(savedMap);
+    } catch (error) {
+      console.error('Error fetching saved status:', error);
+    }
+  };
 
   return (
     <div className="flex flex-col" style={{ 
@@ -798,13 +743,14 @@ const sendMessage = async (messageText = inputText) => {
       height: '100vh',
       height: 'calc(var(--vh, 1vh) * 100)',
       overflow: 'hidden',
-      position: 'fixed', // CHANGED: From relative to fixed
+      position: 'fixed',
       top: 0,
       left: 0,
       right: 0,
-      bottom: 0
+      bottom: 0,
+      WebkitOverflowScrolling: 'touch'
     }}>
-      {/* Header - TRULY FIXED */}
+      {/* Header */}
       <div className="flex-shrink-0 border-b px-3 sm:px-4 md:px-6 py-3 md:py-4" style={{
         background: darkMode ? '#2c2d37' : '#ffffff',
         borderColor: darkMode ? '#444654' : '#e5e7eb',
@@ -813,7 +759,6 @@ const sendMessage = async (messageText = inputText) => {
         zIndex: 50
       }}>
         <div className="flex items-center justify-between gap-2">
-          {/* Left Section */}
           <div className="flex items-center gap-2 md:gap-3">
             <button
               onClick={() => navigate('/dashboard')}
@@ -832,7 +777,6 @@ const sendMessage = async (messageText = inputText) => {
             </div>
           </div>
 
-          {/* Right Section - Larger buttons on desktop */}
           <div className="flex items-center gap-1.5 sm:gap-2 md:gap-3">
             <button
               onClick={toggleDarkMode}
@@ -855,7 +799,6 @@ const sendMessage = async (messageText = inputText) => {
               <Settings size={16} className="md:w-5 md:h-5" />
             </button>
 
-            {/* Suggestions button - larger on desktop */}
             <button
               onClick={getSuggestion}
               className="p-2 md:p-2.5 rounded-lg hover:opacity-80 transition-all flex items-center gap-1.5"
@@ -897,7 +840,7 @@ const sendMessage = async (messageText = inputText) => {
           </div>
         </div>
 
-        {/* Settings Panel - Collapsible */}
+        {/* Settings Panel */}
         {showSettings && (
           <div className="mt-3 p-3 md:p-4 rounded-lg" style={{ background: darkMode ? '#444654' : '#f9fafb' }}>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3">
@@ -992,7 +935,7 @@ const sendMessage = async (messageText = inputText) => {
         )}
       </div>
 
-      {/* Permission Error Banner - Enhanced with line breaks */}
+      {/* Permission Error Banner */}
       {permissionError && (
         <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4" style={{
           background: darkMode ? '#7f1d1d' : '#fee2e2',
@@ -1007,7 +950,6 @@ const sendMessage = async (messageText = inputText) => {
               {permissionError}
             </p>
 
-            {/* Mobile-specific instructions */}
             {isMobile && (
               <div className="text-xs sm:text-sm space-y-1" style={{
                 color: darkMode ? '#fca5a5' : '#b91c1c'
@@ -1037,14 +979,14 @@ const sendMessage = async (messageText = inputText) => {
         </div>
       )}
 
-      {/* IMPROVED: Live Transcript - Top position, minimal & non-intrusive */}
+      {/* Live Transcript - Top position */}
       {liveTranscript && isListening && showLiveTranscript && (
         <div 
           className="fixed top-16 sm:top-20 left-1/2 transform -translate-x-1/2 z-[45] animate-fade-in"
           style={{
             maxWidth: 'calc(100% - 32px)',
             width: '500px',
-            pointerEvents: 'none' // CRITICAL: Allows clicking through to content below
+            pointerEvents: 'none'
           }}
         >
           <div 
@@ -1055,7 +997,7 @@ const sendMessage = async (messageText = inputText) => {
                 : 'rgba(255, 255, 255, 0.9)',
               borderColor: '#10b981',
               backdropFilter: 'blur(8px)',
-              pointerEvents: 'auto' // Re-enable pointer events for this box only
+              pointerEvents: 'auto'
             }}
           >
             <div className="flex items-center justify-between gap-2 mb-1">
@@ -1067,7 +1009,7 @@ const sendMessage = async (messageText = inputText) => {
                 onClick={() => setShowLiveTranscript(false)}
                 className="flex-shrink-0 p-1 rounded hover:bg-gray-200/50 dark:hover:bg-white/10 transition-colors"
                 style={{ color: darkMode ? '#9ca3af' : '#6b7280' }}
-                title="Hide (can show again from settings)"
+                title="Hide (can show again)"
               >
                 <X size={14} />
               </button>
@@ -1081,12 +1023,12 @@ const sendMessage = async (messageText = inputText) => {
         </div>
       )}
 
-      {/* Messages - SCROLLABLE CONTAINER */}
+      {/* Messages - SCROLLABLE */}
       <div 
         className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6" 
         style={{ 
           WebkitOverflowScrolling: 'touch',
-          overscrollBehavior: 'contain', // PREVENTS parent scroll
+          overscrollBehavior: 'contain',
           position: 'relative',
           paddingBottom: autoMode ? '140px' : '120px'
         }}
@@ -1130,14 +1072,12 @@ const sendMessage = async (messageText = inputText) => {
                           : { background: darkMode ? '#444654' : '#ffffff', color: darkMode ? '#ececf1' : '#1f2937' }
                     }
                   >
-                    {/* IMPROVED DELETE BUTTON - Swipe-friendly on mobile, subtle on desktop */}
                     <button
                       onClick={() => deleteMessage(index)}
                       className={`absolute ${
                         msg.role === 'user' ? '-left-9 sm:-left-10' : '-right-9 sm:-right-10'
-                      } top-1/2 -translate-y-1/2 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-red-500/90 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100 group-focus-within:opacity-100`}
+                      } top-1/2 -translate-y-1/2 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-red-500/90 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-all opacity-0 group-hover:opacity-100`}
                       style={{
-                        // Always visible on mobile (touch devices)
                         opacity: isMobile ? '0.7' : undefined
                       }}
                       title="Delete message"
@@ -1191,7 +1131,7 @@ const sendMessage = async (messageText = inputText) => {
         )}
       </div>
 
-      {/* Suggestion Modal - Responsive */}
+      {/* Suggestion Modal */}
       {showSuggestionModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowSuggestionModal(false)}>
           <div
@@ -1230,7 +1170,7 @@ const sendMessage = async (messageText = inputText) => {
         </div>
       )}
 
-      {/* Input Area - FIXED at bottom */}
+      {/* Input Area */}
       {!autoMode && (
         <div 
           className="flex-shrink-0"
@@ -1250,7 +1190,6 @@ const sendMessage = async (messageText = inputText) => {
           }}
         >
           <div className="max-w-3xl mx-auto">
-            {/* Live transcript - compact inline style */}
             {liveTranscript && isListening && (
               <div 
                 className="mb-2 px-3 py-1.5 rounded-lg border flex items-center gap-2 animate-fade-in"
@@ -1314,7 +1253,7 @@ const sendMessage = async (messageText = inputText) => {
         </div>
       )}
 
-      {/* Auto Mode Controls - FIXED at bottom */}
+      {/* Auto Mode Controls */}
       {autoMode && (
         <div 
           className="flex-shrink-0"
@@ -1332,7 +1271,6 @@ const sendMessage = async (messageText = inputText) => {
           }}
         >
           <div className="max-w-3xl mx-auto">
-            {/* Show transcript button when hidden */}
             {!showLiveTranscript && liveTranscript && isListening && (
               <div className="mb-2 flex justify-center">
                 <button

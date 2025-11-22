@@ -10,49 +10,43 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const verifyToken = async () => {
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const response = await axios.get(`${API_URL}/auth/verify`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        
-        setUser(response.data.user);
-      } catch (error) {
-        console.error('Token verification failed:', error);
-        localStorage.removeItem('token');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    verifyToken();
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetchUser(token);
+    } else {
+      setLoading(false);
+    }
   }, []);
+
+  const fetchUser = async (token) => {
+    try {
+      const response = await axios.get(`${API_URL}/user/profile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setUser(response.data.user);
+    } catch (error) {
+      console.error('Token invalid, clearing...');
+      localStorage.removeItem('token');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const signup = async (email, password, name, proficiencyLevel) => {
     try {
-      console.log('📤 Signup request:', { email, password: '***', name, proficiencyLevel });
-      
       const response = await axios.post(`${API_URL}/auth/signup`, {
-        email: email,
-        password: password,
-        name: name,
-        proficiencyLevel: proficiencyLevel || 'beginner'
+        email,
+        password,
+        name,
+        proficiencyLevel
       });
 
-      console.log('✅ Signup successful:', response.data);
-      
+      // PERSIST LOGIN: Store token
       localStorage.setItem('token', response.data.token);
+      localStorage.setItem('rememberMe', 'true'); // NEW: Remember user
       setUser(response.data.user);
       return { success: true };
     } catch (error) {
-      console.error('❌ Signup error:', error.response?.data);
       return {
         success: false,
         message: error.response?.data?.message || 'Signup failed'
@@ -62,48 +56,33 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      console.log('🔐 Attempting login with:', { 
-        email: typeof email === 'string' ? email : 'ERROR: Not a string!', 
-        password: typeof password === 'string' ? '***' : 'ERROR: Not a string!',
-        apiUrl: API_URL 
-      });
-      
-      // Ensure email and password are strings
-      if (typeof email !== 'string' || typeof password !== 'string') {
-        console.error('❌ Email or password is not a string!', { email, password });
-        return { 
-          success: false, 
-          message: 'Invalid email or password format' 
-        };
-      }
-      
       const response = await axios.post(`${API_URL}/auth/login`, {
-        email: email.trim(),
-        password: password.trim()
+        email,
+        password
       });
 
-      console.log('✅ Login response:', response.data);
-      
+      // PERSIST LOGIN: Store token permanently
       localStorage.setItem('token', response.data.token);
+      localStorage.setItem('rememberMe', 'true'); // NEW: Remember user
       setUser(response.data.user);
       return { success: true };
     } catch (error) {
-      console.error('❌ Login error:', error.response?.data || error.message);
-      return { 
-        success: false, 
-        message: error.response?.data?.message || error.response?.data?.errors?.[0]?.msg || 'Login failed. Please check your credentials.' 
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Login failed'
       };
     }
+  };
+
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('rememberMe'); // Clear remember flag
+    setUser(null);
   };
 
   const updateUser = (updatedUserData) => {
     setUser(updatedUserData);
     console.log('✅ User updated in context:', updatedUserData);
-  };
-
-  const logout = () => {
-    localStorage.removeItem('token');
-    setUser(null);
   };
 
   return (

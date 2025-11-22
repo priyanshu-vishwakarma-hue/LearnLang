@@ -76,7 +76,7 @@ const Signup = () => {
 
     console.log('📤 Sending signup data:', formData);
 
-    // FIX: Pass individual values, not the formData object
+    // ✅ FIXED: Pass individual parameters correctly
     const result = await signup(
       formData.email,
       formData.password,
